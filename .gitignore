@@ -1,0 +1,11 @@
+.build/
+dist/
+.DS_Store
+
+# Xcode user and build data
+DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# SwiftPM workspace user data
+.swiftpm/
