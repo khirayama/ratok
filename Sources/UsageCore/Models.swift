@@ -145,7 +145,8 @@ public struct UsageSnapshot: Sendable {
 public enum UsagePaths {
     public static var home: URL { FileManager.default.homeDirectoryForCurrentUser }
     public static var support: URL {
-        home.appendingPathComponent("Library/Application Support/Ratok", isDirectory: true)
+        ProcessInfo.processInfo.environment["RATOK_SUPPORT_DIR"].map { URL(fileURLWithPath: $0) }
+            ?? home.appendingPathComponent("Library/Application Support/Ratok", isDirectory: true)
     }
     public static var legacySupport: URL {
         home.appendingPathComponent("Library/Application Support/UsageBar", isDirectory: true)
