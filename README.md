@@ -29,7 +29,7 @@ sh scripts/build-app.sh
 open dist/Ratok.app
 ```
 
-`dist/Ratok.app`をApplicationsへ移動して使えます。ローカル用のアドホック署名です。一般配布する場合はDeveloper ID署名・公証が必要です。Xcodeで`Package.swift`を開くこともできます。
+`dist/Ratok.app`をApplicationsへ移動して使えます。ローカルビルドはアドホック署名です。GitHub Releasesから配布するビルドはDeveloper ID署名と公証を行います。Xcodeで`Package.swift`を開くこともできます。
 
 ## Claude Codeの制限表示
 
@@ -97,27 +97,39 @@ UI確認用に`open -n dist/Ratok.app --args --preview`で同じ画面を通常�
 
 歯車メニューの「アップデートを確認…」で手動確認できます。「アップデートを自動確認」は既定で有効、自動インストールは既定で無効です。自動インストールを有効にすると、Sparkleがバックグラウンドでダウンロードし、終了時にインストールします。設定は次回起動にも保存されます。更新の配布先が未設定のビルドとプレビューでは更新機能は無効です。
 
-### 配布設定
+### GitHub Releasesと自動更新
 
-1. `rtk swift package resolve`でSparkleを取得します。
-2. `rtk proxy .build/artifacts/sparkle/Sparkle/bin/generate_keys`を一度実行し、出力された公開鍵を控えます。秘密鍵はキーチェーンに保存されます。
-3. フィードURL・公開鍵・バージョン・増加するビルド番号を指定してビルドします。
+`.github/workflows/release.yml`は、`v`で始まるタグをpushするとmacOSアプリをビルドし、Developer IDで署名・公証した後、Sparkleの署名付き`appcast.xml`とzipをGitHub Releaseへ公開します。アプリは固定URL`https://github.com/khirayama/ratok/releases/latest/download/appcast.xml`を確認し、公開後のReleaseから更新を取得します。
+
+初回だけ、GitHubリポジトリの **Settings → Secrets and variables → Actions** に以下を設定してください。秘密鍵・証明書・パスワードはGitHub Actions Secretsへ、公開鍵はRepository variableへ登録します。
+
+| 種類 | 名前 | 値 |
+| --- | --- | --- |
+| Variable | `RATOK_UPDATE_PUBLIC_KEY` | Sparkle Ed25519公開鍵 |
+| Secret | `SPARKLE_PRIVATE_KEY` | Sparkleのエクスポート済み秘密鍵ファイルの内容 |
+| Secret | `APPLE_CERTIFICATE_P12_BASE64` | Developer ID Application証明書の`.p12`をBase64化した内容 |
+| Secret | `APPLE_CERTIFICATE_PASSWORD` | `.p12`の書き出し時に設定したパスワード |
+| Secret | `KEYCHAIN_PASSWORD` | Actions上で一時キーチェーンを作るための任意のランダムなパスワード |
+| Secret | `APPLE_ID` | Apple Developer ProgramのApple ID |
+| Secret | `APPLE_APP_SPECIFIC_PASSWORD` | 公証用のApp用パスワード |
+| Secret | `APPLE_TEAM_ID` | Apple Developer Team ID |
+
+Sparkleの鍵は一度だけ生成します。公開鍵をRepository variableに設定し、秘密鍵をエクスポートしてSecretに設定してください。秘密鍵ファイルは安全な場所に保管し、リポジトリへ追加しないでください。
 
 ```sh
-RATOK_UPDATE_FEED_URL="https://your-host.example/appcast.xml" \
-RATOK_UPDATE_PUBLIC_KEY="公開鍵" \
-RATOK_VERSION="0.2.0" RATOK_BUILD_NUMBER="2" \
-rtk proxy sh scripts/build-app.sh
+swift package resolve
+.build/artifacts/sparkle/Sparkle/bin/generate_keys
+.build/artifacts/sparkle/Sparkle/bin/generate_keys -x "$HOME/ratok-sparkle-private-key"
 ```
 
-`build-app.sh`はローカル用のアドホック署名です。一般配布には、Sparkle内のヘルパーも含めたDeveloper ID署名と公証が必要です。署名・公証を済ませたアプリをzipなどにまとめ、Sparkleの`generate_appcast`で署名付きの更新フィードを生成します。フィードと更新アーカイブをHTTPSで公開してください。GitHub Releasesの場合、フィードには固定URL（例：`releases/latest/download/appcast.xml`）、アーカイブには各リリースの固定URLを使います。秘密鍵はリポジトリへ保存しないでください。
+`.p12`はApple Developer ID Application証明書と秘密鍵をKeychain Accessから書き出して用意します。Base64文字列はmacOSで次のように作成します。
 
 ```sh
-rtk proxy mkdir -p dist/updates
-rtk proxy ditto -c -k --sequesterRsrc --keepParent dist/Ratok.app dist/updates/Ratok-0.2.0.zip
-rtk proxy .build/artifacts/sparkle/Sparkle/bin/generate_appcast --download-url-prefix "https://your-host.example/updates/" dist/updates
+base64 -i DeveloperID.p12 | tr -d '\n'
 ```
 
-初回配布から公開鍵とフィードURLを埋め込んでおく必要があります。更新ごとに`RATOK_BUILD_NUMBER`を増やします。実際の更新確認には、同じ公開鍵・フィードURLを使った旧ビルドと、新ビルドを含む公開済みフィードが必要です。
+Secretsとvariableを登録後、`v0.1.0`のような新しいタグをpushするとReleaseが公開されます。以降のリリースも同じ署名鍵を使い、`vMAJOR.MINOR.PATCH`を増やしてください。`workflow_dispatch`からもタグを指定して実行できます。Pull Requestでは公開ジョブは実行されません。
+
+GitHub Releaseのzipは初回ダウンロードにも使えます。初回公開から自動更新を利用するには、必ずこのWorkflowで生成されたビルドをインストールしてください。ローカルの`build-app.sh`で作ったアプリには配布URLと公開鍵が入りません。
 
 詳細は[Sparkle公式のセットアップ手順](https://sparkle-project.org/documentation/)を参照してください。
