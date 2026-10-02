@@ -4,6 +4,9 @@ import UsageCore
 
 @Observable
 final class UsageStore {
+    var language: AppLanguage = AppLanguage(rawValue: UserDefaults.standard.string(forKey: "appLanguage") ?? "ja") ?? .japanese {
+        didSet { UserDefaults.standard.set(language.rawValue, forKey: "appLanguage") }
+    }
     var period = UsagePeriod.today {
         didSet {
             if oldValue != period { snapshots = [:] }
@@ -27,13 +30,22 @@ final class UsageStore {
     }
 
     func menuHelp(for provider: Provider) -> String {
-        guard let window = snapshots[provider]?.limits?.menuBarWindow else { return "\(provider.name): 制限未取得" }
-        if provider == .claude {
-            let status = window.expired(at: Date()) ? "（リセット済み・再取得待ち）" : ""
-            return "\(provider.name): \(window.title)枠の最終取得残量 \(menuRemainingText(for: provider))\(status)"
+        guard let window = snapshots[provider]?.limits?.menuBarWindow else {
+            return language == .japanese ? "\(provider.name): 制限未取得" : "\(provider.name): limits unavailable"
         }
-        if window.expired(at: Date()) { return "\(provider.name): \(window.title)枠の再取得待ち" }
-        return "\(provider.name): \(window.title)枠の残量 \(menuRemainingText(for: provider))"
+        let title = localizedWindowTitle(window, language: language)
+        if provider == .claude {
+            if language == .english {
+                let status = window.expired(at: Date()) ? " (reset; waiting for refresh)" : ""
+                return "\(provider.name): \(title) remaining at last fetch \(menuRemainingText(for: provider))\(status)"
+            }
+            let status = window.expired(at: Date()) ? "（リセット済み・再取得待ち）" : ""
+            return "\(provider.name): \(title)枠の最終取得残量 \(menuRemainingText(for: provider))\(status)"
+        }
+        if window.expired(at: Date()) {
+            return language == .japanese ? "\(provider.name): \(title)枠の再取得待ち" : "\(provider.name): \(title) waiting for refresh"
+        }
+        return language == .japanese ? "\(provider.name): \(title)枠の残量 \(menuRemainingText(for: provider))" : "\(provider.name): \(title) remaining \(menuRemainingText(for: provider))"
     }
 
     init() {
@@ -77,6 +89,10 @@ final class UsageStore {
             bridgeInstalled = installer.installed
             error = nil
             Task { await refresh() }
-        } catch { self.error = "Claude連携を変更できませんでした: \(error.localizedDescription)" }
+        } catch {
+            self.error = language == .japanese
+                ? "Claude連携を変更できませんでした: \(error.localizedDescription)"
+                : "Could not change Claude integration: \(error.localizedDescription)"
+        }
     }
 }

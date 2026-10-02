@@ -18,8 +18,9 @@ struct MenuBarLabel: View {
     private let providers: [Provider] = [.codex, .claude]
 
     var body: some View {
+        let separator = store.language == .japanese ? "、" : ", "
         Image(nsImage: image)
-            .accessibilityLabel(providers.map { store.menuHelp(for: $0) }.joined(separator: "、"))
+            .accessibilityLabel(providers.map { store.menuHelp(for: $0) }.joined(separator: separator))
             .help(providers.map { store.menuHelp(for: $0) }.joined(separator: "\n"))
     }
 
@@ -29,7 +30,8 @@ struct MenuBarLabel: View {
         let content = HStack(spacing: 12) {
             ForEach(providers) { provider in
                 HStack(spacing: 4) {
-                    Image(systemName: provider.symbolName)
+                    Image(nsImage: provider.markImage).renderingMode(.template)
+                        .resizable().scaledToFit().frame(width: 16, height: 16)
                     Text("\(provider.menuBarName) \(store.menuRemainingText(for: provider))")
                         .monospacedDigit()
                 }

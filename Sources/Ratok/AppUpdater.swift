@@ -12,6 +12,14 @@ final class AppUpdater: ObservableObject {
         didSet { controller?.updater.automaticallyDownloadsUpdates = automaticallyDownloadsUpdates }
     }
     let configurationMessage: String?
+    func configurationMessage(for language: AppLanguage) -> String? {
+        guard let configurationMessage else { return nil }
+        guard language == .english else { return configurationMessage }
+        if configurationMessage == "この起動方法では更新を利用できません" {
+            return "Updates are unavailable when launched this way."
+        }
+        return "Update feed is not configured."
+    }
     var isConfigured: Bool { controller != nil }
     private let controller: SPUStandardUpdaterController?
 
