@@ -1,11 +1,11 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")/.."
-rtk swift build -c release
-ratok_bin=$(rtk proxy swift build -c release --show-bin-path)
+swift build -c release
+ratok_bin=$(swift build -c release --show-bin-path)
 mkdir -p dist/Ratok.app/Contents/MacOS dist/Ratok.app/Contents/Frameworks dist/Ratok.app/Contents/Resources
-rtk proxy cp .build/artifacts/sparkle/Sparkle/LICENSE dist/Ratok.app/Contents/Resources/Sparkle-LICENSE
-rtk proxy ditto .build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework dist/Ratok.app/Contents/Frameworks/Sparkle.framework
+cp .build/artifacts/sparkle/Sparkle/LICENSE dist/Ratok.app/Contents/Resources/Sparkle-LICENSE
+ditto .build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework dist/Ratok.app/Contents/Frameworks/Sparkle.framework
 cp "$ratok_bin/Ratok" dist/Ratok.app/Contents/MacOS/Ratok
 cat > dist/Ratok.app/Contents/Info.plist <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -23,7 +23,7 @@ cat > dist/Ratok.app/Contents/Info.plist <<'PLIST'
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
-rtk proxy python3 - <<'PYCONFIG'
+python3 - <<'PYCONFIG'
 import base64
 import os
 import plistlib
@@ -51,5 +51,9 @@ if feed or key:
 with open(path, "wb") as file:
     plistlib.dump(info, file)
 PYCONFIG
-rtk proxy codesign --force --deep --sign - dist/Ratok.app
+if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
+    codesign --force --deep --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" dist/Ratok.app
+else
+    rtk proxy codesign --force --deep --sign - dist/Ratok.app
+fi
 printf '\nBuilt: dist/Ratok.app\n'
