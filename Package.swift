@@ -8,7 +8,7 @@ let package = Package(
     dependencies: [.package(url: "https://github.com/sparkle-project/Sparkle", exact: "2.10.0")],
     targets: [
         .target(name: "UsageCore"),
-        .executableTarget(name: "Ratok", dependencies: ["UsageCore", .product(name: "Sparkle", package: "Sparkle")], swiftSettings: [
+        .executableTarget(name: "Ratok", dependencies: ["UsageCore", .product(name: "Sparkle", package: "Sparkle")], resources: [.process("Resources")], swiftSettings: [
             .defaultIsolation(MainActor.self),
             .enableUpcomingFeature("NonisolatedNonsendingByDefault")
         ], linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]),

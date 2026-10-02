@@ -3,7 +3,13 @@ import SwiftUI
 import UsageCore
 
 extension Provider {
-    var symbolName: String { self == .claude ? "asterisk" : "terminal" }
+    var assetName: String { self == .claude ? "claude-mark" : "codex-mark" }
+    var markImage: NSImage {
+        guard let url = Bundle.module.url(forResource: assetName, withExtension: "png"),
+              let image = NSImage(contentsOf: url) else { return NSImage(size: .zero) }
+        image.isTemplate = true
+        return image
+    }
     var menuBarName: String { self == .claude ? "CC" : "Codex" }
 }
 
