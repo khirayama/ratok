@@ -3,10 +3,6 @@ set -eu
 cd "$(dirname "$0")/.."
 
 : "${GITHUB_REF_NAME:?Run this script from a version tag, for example v0.2.0}"
-: "${APPLE_SIGNING_IDENTITY:?Developer ID Application signing identity is required}"
-: "${APPLE_ID:?Apple ID is required for notarization}"
-: "${APPLE_APP_SPECIFIC_PASSWORD:?App-specific password is required for notarization}"
-: "${APPLE_TEAM_ID:?Apple Developer Team ID is required}"
 : "${RATOK_UPDATE_PUBLIC_KEY:?Set the Sparkle public key as a GitHub Actions variable}"
 : "${SPARKLE_PRIVATE_KEY:?Set the exported Sparkle private key as a GitHub Actions secret}"
 
@@ -24,16 +20,9 @@ RATOK_VERSION="$version" \
 RATOK_BUILD_NUMBER="$build_number" \
 RATOK_UPDATE_FEED_URL="$feed_url" \
 RATOK_UPDATE_PUBLIC_KEY="$RATOK_UPDATE_PUBLIC_KEY" \
-APPLE_SIGNING_IDENTITY="$APPLE_SIGNING_IDENTITY" \
 sh scripts/build-app.sh
 
 codesign --verify --deep --strict --verbose=2 dist/Ratok.app
-mkdir -p dist/notary
-ditto -c -k --sequesterRsrc --keepParent dist/Ratok.app dist/notary/Ratok-notarization.zip
-xcrun notarytool submit dist/notary/Ratok-notarization.zip --apple-id "$APPLE_ID" \
-    --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
-xcrun stapler staple dist/Ratok.app
-xcrun stapler validate dist/Ratok.app
 
 mkdir -p dist/release
 archive="Ratok-$version.zip"

@@ -54,6 +54,6 @@ PYCONFIG
 if [ -n "${APPLE_SIGNING_IDENTITY:-}" ]; then
     codesign --force --deep --options runtime --timestamp --sign "$APPLE_SIGNING_IDENTITY" dist/Ratok.app
 else
-    rtk proxy codesign --force --deep --sign - dist/Ratok.app
+    codesign --force --deep --sign - dist/Ratok.app
 fi
 printf '\nBuilt: dist/Ratok.app\n'
