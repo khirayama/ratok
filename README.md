@@ -99,20 +99,14 @@ UI確認用に`open -n dist/Ratok.app --args --preview`で同じ画面を通常�
 
 ### GitHub Releasesと自動更新
 
-`.github/workflows/release.yml`は、`v`で始まるタグをpushするとmacOSアプリをビルドし、Developer IDで署名・公証した後、Sparkleの署名付き`appcast.xml`とzipをGitHub Releaseへ公開します。アプリは固定URL`https://github.com/khirayama/ratok/releases/latest/download/appcast.xml`を確認し、公開後のReleaseから更新を取得します。
+`.github/workflows/release.yml`は、`v`で始まるタグをpushするとmacOSアプリをアドホック署名でビルドし、Sparkleの署名付き`appcast.xml`とzipをGitHub Releaseへ公開します。アプリは固定URL`https://github.com/khirayama/ratok/releases/latest/download/appcast.xml`を確認し、公開後のReleaseから更新を取得します。
 
-初回だけ、GitHubリポジトリの **Settings → Secrets and variables → Actions** に以下を設定してください。秘密鍵・証明書・パスワードはGitHub Actions Secretsへ、公開鍵はRepository variableへ登録します。
+初回だけ、GitHubリポジトリの **Settings → Secrets and variables → Actions** に以下を設定してください。秘密鍵はGitHub Actions Secretsへ、公開鍵はRepository variableへ登録します。
 
 | 種類 | 名前 | 値 |
 | --- | --- | --- |
 | Variable | `RATOK_UPDATE_PUBLIC_KEY` | Sparkle Ed25519公開鍵 |
 | Secret | `SPARKLE_PRIVATE_KEY` | Sparkleのエクスポート済み秘密鍵ファイルの内容 |
-| Secret | `APPLE_CERTIFICATE_P12_BASE64` | Developer ID Application証明書の`.p12`をBase64化した内容 |
-| Secret | `APPLE_CERTIFICATE_PASSWORD` | `.p12`の書き出し時に設定したパスワード |
-| Secret | `KEYCHAIN_PASSWORD` | Actions上で一時キーチェーンを作るための任意のランダムなパスワード |
-| Secret | `APPLE_ID` | Apple Developer ProgramのApple ID |
-| Secret | `APPLE_APP_SPECIFIC_PASSWORD` | 公証用のApp用パスワード |
-| Secret | `APPLE_TEAM_ID` | Apple Developer Team ID |
 
 Sparkleの鍵は一度だけ生成します。公開鍵をRepository variableに設定し、秘密鍵をエクスポートしてSecretに設定してください。秘密鍵ファイルは安全な場所に保管し、リポジトリへ追加しないでください。
 
@@ -122,14 +116,10 @@ swift package resolve
 .build/artifacts/sparkle/Sparkle/bin/generate_keys -x "$HOME/ratok-sparkle-private-key"
 ```
 
-`.p12`はApple Developer ID Application証明書と秘密鍵をKeychain Accessから書き出して用意します。Base64文字列はmacOSで次のように作成します。
-
-```sh
-base64 -i DeveloperID.p12 | tr -d '\n'
-```
-
 Secretsとvariableを登録後、`v0.1.0`のような新しいタグをpushするとReleaseが公開されます。以降のリリースも同じ署名鍵を使い、`vMAJOR.MINOR.PATCH`を増やしてください。`workflow_dispatch`からもタグを指定して実行できます。Pull Requestでは公開ジョブは実行されません。
 
 GitHub Releaseのzipは初回ダウンロードにも使えます。初回公開から自動更新を利用するには、必ずこのWorkflowで生成されたビルドをインストールしてください。ローカルの`build-app.sh`で作ったアプリには配布URLと公開鍵が入りません。
+
+現状はApple Developer ID署名と公証を行いません。ダウンロードした初回起動時にmacOSが開発元を確認できないという警告を表示し、利用者がFinderから右クリックして「開く」を選ぶなどの許可操作が必要になる場合があります。Apple Developer Programへ登録した後はDeveloper ID署名・公証をRelease workflowへ追加できます。
 
 詳細は[Sparkle公式のセットアップ手順](https://sparkle-project.org/documentation/)を参照してください。
