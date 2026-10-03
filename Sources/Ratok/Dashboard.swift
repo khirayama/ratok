@@ -52,6 +52,14 @@ struct Dashboard: View {
                         ForEach(AppLanguage.allCases) { language in Text(language.title).tag(language) }
                     }
                     Divider()
+                    Toggle(localized("Codexの文字を表示", "Show Codex label", language: store.language), isOn: $store.showCodexNameInMenuBar)
+                    Toggle(localized("CCの文字を表示", "Show CC label", language: store.language), isOn: $store.showClaudeNameInMenuBar)
+                    Toggle(localized("5h・週間の両方を表示", "Show both 5h and weekly limits", language: store.language), isOn: $store.showBothLimitWindowsInMenuBar)
+                    Picker(localized("割合の表示", "Percentage display", language: store.language), selection: $store.menuBarPercentageMode) {
+                        Text(localized("残量", "Remaining", language: store.language)).tag(MenuBarPercentageMode.remaining)
+                        Text(localized("使用量", "Used", language: store.language)).tag(MenuBarPercentageMode.used)
+                    }
+                    Divider()
                     Button(store.bridgeInstalled
                            ? localized("Claude連携を解除", "Disconnect Claude integration", language: store.language)
                            : localized("Claudeの制限表示を接続", "Connect Claude limits", language: store.language), action: store.toggleBridge)
