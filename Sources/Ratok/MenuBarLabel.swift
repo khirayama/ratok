@@ -19,21 +19,22 @@ struct MenuBarLabel: View {
 
     var body: some View {
         let separator = store.language == .japanese ? "、" : ", "
+        let help = providers.map { store.menuHelp(for: $0) }.joined(separator: separator)
         Image(nsImage: image)
-            .accessibilityLabel(providers.map { store.menuHelp(for: $0) }.joined(separator: separator))
-            .help(providers.map { store.menuHelp(for: $0) }.joined(separator: "\n"))
+            .accessibilityLabel(help)
+            .help(help)
     }
 
     private var image: NSImage {
-        // MenuBarExtra flattens its label. Render both icons and values together
-        // so each provider keeps its icon in the native status item.
         let content = HStack(spacing: 12) {
             ForEach(providers) { provider in
                 HStack(spacing: 4) {
                     Image(nsImage: provider.markImage).renderingMode(.template)
                         .resizable().scaledToFit().frame(width: 16, height: 16)
-                    Text("\(provider.menuBarName) \(store.menuRemainingText(for: provider))")
-                        .monospacedDigit()
+                    if provider == .codex ? store.showCodexNameInMenuBar : store.showClaudeNameInMenuBar {
+                        Text(provider.menuBarName)
+                    }
+                    Text(store.menuBarValue(for: provider)).monospacedDigit()
                 }
             }
         }
