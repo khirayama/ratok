@@ -84,6 +84,16 @@ public struct LimitSnapshot: Codable, Sendable, Equatable {
         windows.first { $0.id == "primary" || $0.title == "5時間" }
             ?? windows.first { $0.id == "secondary" || $0.title == "週間" }
     }
+    /// Combines two sources for the same account: the newer one wins per window, and windows only the
+    /// older one knows are kept. The main Codex windows stay ahead of additional pools.
+    public func merging(_ other: LimitSnapshot) -> LimitSnapshot {
+        let (newer, older) = observedAt >= other.observedAt ? (self, other) : (other, self)
+        let known = Set(newer.windows.map(\.id))
+        let all = newer.windows + older.windows.filter { !known.contains($0.id) }
+        let main: (LimitWindow) -> Bool = { $0.id == "primary" || $0.id == "secondary" }
+        return LimitSnapshot(windows: all.filter(main) + all.filter { !main($0) },
+                             observedAt: newer.observedAt, plan: newer.plan ?? older.plan)
+    }
 }
 
 public enum UsageGrouping: String, CaseIterable, Sendable, Identifiable {

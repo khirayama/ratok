@@ -116,7 +116,7 @@ struct ParsedLog: Sendable {
         return windows
     }
 
-    private static func codexWindows(in bucket: [String: Any], bucket id: String, name: String?, observedAt: Date) -> [LimitWindow] {
+    static func codexWindows(in bucket: [String: Any], bucket id: String, name: String?, observedAt: Date) -> [LimitWindow] {
         let displayName: String
         if id == "gpt-reserve" || id == "gpt_reserve" || id == "luna_reserve"
             || id == "base_model_inference" {

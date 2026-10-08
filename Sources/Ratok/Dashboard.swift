@@ -159,7 +159,7 @@ private struct ProviderCard: View {
                         }
                     }
                 } else {
-                    Text(localized("Codexのログに記録された制限を表示します。追加枠やLuna Reserveは、ログに情報がある場合に別枠で表示します。", "Shows limits recorded in Codex logs. Extra usage and Luna Reserve appear separately when recorded in the logs.", language: language))
+                    Text(localized("Codexのログとapp serverから取得した制限を表示します。追加枠やLuna Reserveは別枠で表示します。", "Shows limits from Codex logs and the Codex app server. Extra usage and Luna Reserve appear separately.", language: language))
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 if let resetCredits { ResetCreditRow(credits: resetCredits, language: language) }

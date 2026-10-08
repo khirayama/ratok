@@ -30,6 +30,7 @@ final class UsageStore {
     }
     var snapshots: [Provider: UsageSnapshot] = [:]
     var codexResetCredits: ResetCreditSnapshot?
+    @ObservationIgnored private var codexAccountLimits: LimitSnapshot?
     var refreshing = false
     var updatedAt: Date?
     var bridgeInstalled = BridgeInstaller().installed
@@ -133,7 +134,7 @@ final class UsageStore {
         guard !refreshing else { return }
         refreshing = true
         defer { refreshing = false }
-        refreshResetCredits(force: manual)
+        refreshCodexAccount(force: manual)
         let selectedPeriod = period
         let now = Date()
         let start = selectedPeriod.start(now: now)
@@ -147,12 +148,21 @@ final class UsageStore {
             return
         }
         snapshots = [.claude: claude, .codex: codex]
+        mergeCodexAccountLimits()
         updatedAt = Date()
         bridgeInstalled = BridgeInstaller().installed
     }
 
-    private func refreshResetCredits(force: Bool) {
-        // Banked resets come from the network and rarely change, so each answer schedules the next read.
+    /// Rollouts record only the pool a session used, so pools such as Luna Reserve come from the app server.
+    private func mergeCodexAccountLimits() {
+        guard let account = codexAccountLimits, var codex = snapshots[.codex] else { return }
+        codex.limits = codex.limits?.merging(account) ?? account
+        snapshots[.codex] = codex
+    }
+
+    private func refreshCodexAccount(force: Bool) {
+        // The answer comes from the network: limits are read every 10 minutes, and banked resets, which
+        // rarely change, on their own slower schedule when no limits are returned.
         let now = Date()
         if let last = resetCreditsRequestedAt, now.timeIntervalSince(last) < 10 { return }
         if !force, let next = resetCreditsNextFetch, now < next { return }
@@ -160,9 +170,9 @@ final class UsageStore {
         // Until the answer arrives, don't start a second read on the next 30-second tick.
         resetCreditsNextFetch = now.addingTimeInterval(600)
         Task {
-            let read = await Task.detached(operation: { CodexAppServer.readResetCredits() }).value
+            let read = await Task.detached(operation: { CodexAppServer.readAccount() }).value
             let finished = Date()
-            switch read {
+            switch read.resetCredits {
             case .available(let credits):
                 codexResetCredits = credits
                 resetCreditsNextFetch = credits.nextFetch(after: finished)
@@ -172,6 +182,11 @@ final class UsageStore {
             case .failed:
                 // Offline, signed out, or Codex missing keeps the last known value; retry sooner.
                 resetCreditsNextFetch = finished.addingTimeInterval(600)
+            }
+            if let limits = read.limits {
+                codexAccountLimits = limits
+                mergeCodexAccountLimits()
+                resetCreditsNextFetch = min(resetCreditsNextFetch ?? .distantFuture, finished.addingTimeInterval(600))
             }
         }
     }

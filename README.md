@@ -49,12 +49,12 @@ open dist/Ratok.app
 | Claude Code | `~/.claude/projects/**/*.jsonl`（サブエージェントを含む） | assistantのusageをメッセージ・リクエストIDで重複排除。キャッシュ読込・作成を入力に含める |
 | Codex | `~/.codex/sessions/**/*.jsonl` | token_countの累積値の差分を集計。同じ累積値の繰り返しは加算しない |
 | Claudeの制限 | status lineからの`rate_limits` | 接続以降に取得した5時間・週間・追加利用の枠 |
-| Codexの制限 | token_countの`rate_limits`／`additional_rate_limits` | Codex全体の枠とログに記録された追加枠を個別表示。Luna Reserveなどの別枠は通常枠へ混ぜない |
-| Codexのリセット権 | `codex app-server`の`account/rateLimits/read` | 未使用のリセット権の回数と期限。リセット権があれば24時間ごとと最短の期限、なければ1時間ごと、および手動更新時に取得 |
+| Codexの制限 | token_countの`rate_limits`／`additional_rate_limits`、`codex app-server`の`account/rateLimits/read` | Codex全体の枠と追加枠を個別表示。Luna Reserveなどの別枠は通常枠へ混ぜず、ログに記録がない間もapp serverから10分ごとに取得して常時表示 |
+| Codexのリセット権 | `codex app-server`の`account/rateLimits/read` | 未使用のリセット権の回数と期限。制限と同じ応答から10分ごと、および手動更新時に取得 |
 
 Codexのデータ構造: [OpenAI Codex protocol](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs)
 
-Codexのリセット権はログに記録されないため、Codex CLIのapp serverをログインシェル経由で短時間起動して読み取ります。認証はCodex CLIが行います。取得に失敗した場合（未インストール、未ログイン、オフライン）は直前の値を保持して10分後に再試行し、一度も取得できていなければ表示しません。Ratokは認証トークンを読まず、リセット権を使用することもありません。Claude Codeのリセット権は、status lineなど公式の取得手段がないため、[claude.aiの使用状況ページ](https://claude.ai/settings/usage)へのリンクのみ表示します。
+Codexのリセット権と、利用中でない枠（Luna Reserveなど）の制限はログに記録されないため、Codex CLIのapp serverをログインシェル経由で短時間起動して読み取ります。認証はCodex CLIが行います。取得に失敗した場合（未インストール、未ログイン、オフライン）は直前の値を保持して10分後に再試行し、一度も取得できていなければ表示しません。Ratokは認証トークンを読まず、リセット権を使用することもありません。Claude Codeのリセット権は、status lineなど公式の取得手段がないため、[claude.aiの使用状況ページ](https://claude.ai/settings/usage)へのリンクのみ表示します。
 
 内訳は合計と同じ期間・重複排除を使い、入力＋出力が多い順に表示します。Codexは`turn_context`の`model`／`effort`を次のターンまで適用し、セッション途中の切り替えも反映します。Claude Codeはassistantの`message.model`と`perTurnEffort`（未記録なら`effort`）を使います。記録がない項目は「不明」に含め、現在の設定から過去の値を推測しません。
 
@@ -80,7 +80,7 @@ Claudeは[公式のモデルID形式](https://platform.claude.com/docs/en/about-
 
 トークン数はこのMacに残るログの範囲です。他のデバイス、Claude Web、ChatGPTなどの利用分は集計しません。アーカイブ／削除されたログも対象外です。期間はMacのタイムゾーンで今日の午前0時から、7日間は6日前、30日間は29日前の午前0時からです。
 
-キャッシュは入力の内数、Codexの推論トークンは出力の内数です。サブスクリプションの使用率は取得値をそのまま表示し、トークン数から推測しません。Codexの追加枠やLuna Reserveはログに記録されている場合に限り表示します。APIキーで利用している場合など、制限情報が提供されない環境は未取得として表示します。リセット時刻を過ぎた取得値は「再取得待ち」になり、0%へ推測で更新しません。
+キャッシュは入力の内数、Codexの推論トークンは出力の内数です。サブスクリプションの使用率は取得値をそのまま表示し、トークン数から推測しません。Codexの追加枠やLuna Reserveは、ログまたはCodex CLIのapp serverから取得できた場合に表示し、新しい方の取得値を使います。APIキーで利用している場合など、制限情報が提供されない環境は未取得として表示します。リセット時刻を過ぎた取得値は「再取得待ち」になり、0%へ推測で更新しません。
 
 `CLAUDE_CONFIG_DIR`／`CODEX_HOME`／`RATOK_SUPPORT_DIR`がアプリの環境に存在する場合はカスタムパスを利用します。Finderから起動したアプリにはシェルの環境変数が引き継がれない場合があります。
 

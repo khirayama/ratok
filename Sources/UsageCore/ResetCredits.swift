@@ -40,8 +40,37 @@ public enum ResetCreditRead: Sendable, Equatable {
     case failed
 }
 
-/// Reads banked resets through the Codex CLI's own app server, so Codex keeps handling authentication.
+/// One answer from the Codex app server: banked resets plus the current limits of every pool.
+public struct CodexAccountRead: Sendable, Equatable {
+    public var resetCredits: ResetCreditRead
+    /// Includes pools such as Luna Reserve that rollouts only record while that pool is in use.
+    public var limits: LimitSnapshot?
+    public init(resetCredits: ResetCreditRead, limits: LimitSnapshot? = nil) {
+        self.resetCredits = resetCredits; self.limits = limits
+    }
+}
+
+/// Reads banked resets and limits through the Codex CLI's own app server, so Codex keeps handling authentication.
 public enum CodexAppServer {
+    /// Parses one JSON-RPC line; returns nil unless it answers request `id` with at least one limit window.
+    static func limits(fromResponse line: Data, id: Int, now: Date) -> LimitSnapshot? {
+        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+              (object["id"] as? NSNumber)?.intValue == id,
+              let result = object["result"] as? [String: Any] else { return nil }
+        let main = result["rateLimits"] as? [String: Any]
+        var buckets = (result["rateLimitsByLimitId"] as? [String: Any] ?? [:]).compactMapValues { $0 as? [String: Any] }
+        if buckets.isEmpty, let main { buckets = [main["limitId"] as? String ?? "codex": main] }
+        // JSON objects are unordered: show the main Codex pool first, then the others by name.
+        let ids = buckets.keys.sorted { ($0 == "codex" ? "" : $0) < ($1 == "codex" ? "" : $1) }
+        let windows = ids.flatMap { key -> [LimitWindow] in
+            guard let bucket = buckets[key] else { return [] }
+            return ParsedLog.codexWindows(in: bucket, bucket: bucket["limitId"] as? String ?? key,
+                                          name: bucket["limitName"] as? String, observedAt: now)
+        }
+        guard !windows.isEmpty else { return nil }
+        return LimitSnapshot(windows: windows, observedAt: now, plan: main?["planType"] as? String)
+    }
+
     /// Parses one JSON-RPC line; returns nil unless it answers request `id`.
     static func resetCredits(fromResponse line: Data, id: Int, now: Date) -> ResetCreditRead? {
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
@@ -59,7 +88,7 @@ public enum CodexAppServer {
     }
 
     /// Blocks until Codex answers or `timeout` passes.
-    public static func readResetCredits(timeout: TimeInterval = 20, now: Date = Date()) -> ResetCreditRead {
+    public static func readAccount(timeout: TimeInterval = 20, now: Date = Date()) -> CodexAccountRead {
         let process = Process()
         // Apps launched from Finder lack the user's PATH (npm, Homebrew, version managers); their shell has it.
         process.executableURL = URL(fileURLWithPath: ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh")
@@ -68,7 +97,7 @@ public enum CodexAppServer {
         process.standardInput = input
         process.standardOutput = output
         process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return .failed }
+        do { try process.run() } catch { return CodexAccountRead(resetCredits: .failed) }
         defer {
             try? input.fileHandleForWriting.close()
             if process.isRunning { process.terminate() }
@@ -81,16 +110,18 @@ public enum CodexAppServer {
             #"{"method":"initialized"}"#,
             #"{"id":2,"method":"account/rateLimits/read","params":{}}"#,
         ].joined(separator: "\n") + "\n"
-        do { try input.fileHandleForWriting.write(contentsOf: Data(requests.utf8)) } catch { return .failed }
+        do { try input.fileHandleForWriting.write(contentsOf: Data(requests.utf8)) } catch { return CodexAccountRead(resetCredits: .failed) }
         var pending = Data()
         while true {
             let chunk = output.fileHandleForReading.availableData
-            if chunk.isEmpty { return .failed }
+            if chunk.isEmpty { return CodexAccountRead(resetCredits: .failed) }
             pending.append(chunk)
             while let newline = pending.firstIndex(of: 10) {
                 let line = Data(pending[..<newline])
                 pending.removeSubrange(...newline)
-                if let read = resetCredits(fromResponse: line, id: 2, now: now) { return read }
+                if let read = resetCredits(fromResponse: line, id: 2, now: now) {
+                    return CodexAccountRead(resetCredits: read, limits: limits(fromResponse: line, id: 2, now: now))
+                }
             }
         }
     }

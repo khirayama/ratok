@@ -88,3 +88,32 @@ func codexResetCreditsClassifyOtherMessages(_ line: String, _ expected: ResetCre
     #expect(credits([]).nextFetch(after: now) == Date(timeIntervalSince1970: 3_600))
     #expect(ResetCreditSnapshot(availableCount: 1, credits: [], observedAt: now).nextFetch(after: now) == Date(timeIntervalSince1970: 86_400))
 }
+
+@Test func codexAppServerLimitsIncludeLunaReserveWeekly() throws {
+    let now = Date(timeIntervalSince1970: 1_000)
+    let line = Data(#"{"id":2,"result":{"rateLimits":{"limitId":"codex","planType":"plus","primary":{"usedPercent":13,"windowDurationMins":300,"resetsAt":5000},"secondary":{"usedPercent":79,"windowDurationMins":10080,"resetsAt":9000}},"rateLimitsByLimitId":{"base_model_inference":{"limitId":"base_model_inference","limitName":"gpt-reserve","primary":{"usedPercent":6,"windowDurationMins":10080,"resetsAt":7000},"secondary":null},"codex":{"limitId":"codex","limitName":null,"primary":{"usedPercent":13,"windowDurationMins":300,"resetsAt":5000},"secondary":{"usedPercent":79,"windowDurationMins":10080,"resetsAt":9000}}},"rateLimitResetCredits":null}}"#.utf8)
+    let limits = try #require(CodexAppServer.limits(fromResponse: line, id: 2, now: now))
+    #expect(limits.windows.map(\.id) == ["primary", "secondary", "base_model_inference_primary"])
+    #expect(limits.windows[2] == LimitWindow(id: "base_model_inference_primary", title: "Luna Reserve · 週間",
+                                             usedPercent: 6, resetsAt: Date(timeIntervalSince1970: 7000)))
+    #expect(limits.plan == "plus")
+    #expect(limits.menuBarWindow?.id == "primary")
+    #expect(CodexAppServer.limits(fromResponse: line, id: 3, now: now) == nil)
+    #expect(CodexAppServer.limits(fromResponse: Data(#"{"id":2,"result":{"rateLimitResetCredits":null}}"#.utf8), id: 2, now: now) == nil)
+}
+
+@Test func mergedLimitsPreferTheNewerSourceAndKeepOtherPools() {
+    let old = Date(timeIntervalSince1970: 0), new = Date(timeIntervalSince1970: 60)
+    let reserve = LimitWindow(id: "base_model_inference_primary", title: "Luna Reserve · 週間", usedPercent: 6, resetsAt: nil)
+    let account = LimitSnapshot(windows: [LimitWindow(id: "primary", title: "5時間", usedPercent: 10, resetsAt: nil), reserve],
+                                observedAt: old, plan: "plus")
+    let log = LimitSnapshot(windows: [LimitWindow(id: "primary", title: "5時間", usedPercent: 12, resetsAt: nil)], observedAt: new)
+    for merged in [log.merging(account), account.merging(log)] {
+        #expect(merged.windows.map(\.usedPercent) == [12, 6])
+        #expect(merged.observedAt == new)
+        #expect(merged.plan == "plus")
+    }
+    // A rollout from a reserve-only session still shows the main windows first.
+    let reserveLog = LimitSnapshot(windows: [reserve], observedAt: new)
+    #expect(reserveLog.merging(account).windows.map(\.id) == ["primary", "base_model_inference_primary"])
+}
