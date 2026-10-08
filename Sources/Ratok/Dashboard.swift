@@ -14,7 +14,7 @@ struct Dashboard: View {
                     Text(localized("Claude CodeとCodexの使用状況", "Claude Code and Codex usage", language: store.language)).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button { Task { await store.refresh() } } label: {
+                Button { Task { await store.refresh(manual: true) } } label: {
                     Image(systemName: "arrow.clockwise").frame(width: 28, height: 28)
                 }.buttonStyle(.borderless).disabled(store.refreshing).help(localized("使用状況を更新", "Refresh usage", language: store.language))
             }
@@ -29,6 +29,7 @@ struct Dashboard: View {
                 ForEach([Provider.codex, .claude]) { provider in
                     ProviderCard(provider: provider, snapshot: store.snapshots[provider],
                                  period: store.period, grouping: grouping, language: store.language, bridgeInstalled: store.bridgeInstalled,
+                                 resetCredits: provider == .codex ? store.codexResetCredits : nil,
                                  connect: store.toggleBridge)
                 }
             }
@@ -91,6 +92,7 @@ private struct ProviderCard: View {
     let grouping: UsageGrouping
     let language: AppLanguage
     let bridgeInstalled: Bool
+    let resetCredits: ResetCreditSnapshot?
     let connect: () -> Void
     private var accent: Color { provider == .claude ? Color(red: 0.78, green: 0.43, blue: 0.29) : Color(red: 0.20, green: 0.58, blue: 0.47) }
     var body: some View {
@@ -159,6 +161,16 @@ private struct ProviderCard: View {
                 } else {
                     Text(localized("Codexのログに記録された制限を表示します。追加枠やLuna Reserveは、ログに情報がある場合に別枠で表示します。", "Shows limits recorded in Codex logs. Extra usage and Luna Reserve appear separately when recorded in the logs.", language: language))
                         .font(.caption).foregroundStyle(.secondary)
+                }
+                if let resetCredits { ResetCreditRow(credits: resetCredits, language: language) }
+                if provider == .claude, let usage = URL(string: "https://claude.ai/settings/usage") {
+                    // Claude Code offers no way to read banked resets yet; point to where they can be checked.
+                    HStack {
+                        Text(localized("リセット権", "Banked resets", language: language)).font(.caption)
+                        Spacer()
+                        Link(localized("claude.aiで確認", "Check on claude.ai", language: language), destination: usage)
+                            .font(.system(size: 11))
+                    }
                 }
                 ForEach(snapshot.issues, id: \.self) { Text(localizedIssue($0, language: language)).font(.caption).foregroundStyle(.orange) }
                 if snapshot.files == 0, snapshot.issues.isEmpty {
@@ -239,38 +251,88 @@ private struct LimitRow: View {
     let window: LimitWindow
     let accent: Color
     let language: AppLanguage
-    private var expired: Bool { window.expired(at: Date()) }
-    private var color: Color { window.usedPercent >= 90 ? .red : window.usedPercent >= 75 ? .orange : accent }
     var body: some View {
-        VStack(spacing: 3) {
-            HStack {
-                Text(localizedWindowTitle(window, language: language)).font(.caption)
-                Spacer()
-                Text(expired
-                     ? localized("再取得待ち", "Waiting for refresh", language: language)
-                     : localized("\(window.usedPercent.formatted(.number.precision(.fractionLength(0...1))))% 使用", "\(window.usedPercent.formatted(.number.precision(.fractionLength(0...1))))% used", language: language))
-                    .font(.system(size: 11, weight: .medium)).monospacedDigit().foregroundStyle(expired ? .secondary : color)
-            }
-            GeometryReader { geometry in
-                Capsule().fill(color.opacity(0.12))
-                    .overlay(alignment: .leading) {
-                        Capsule().fill(color)
-                            .frame(width: geometry.size.width * (expired ? 0 : min(max(window.usedPercent, 0), 100) / 100))
-                    }
-            }.frame(height: 4)
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            let expired = window.expired(at: context.date)
+            let color: Color = window.usedPercent >= 90 ? .red : window.usedPercent >= 75 ? .orange : accent
+            let used = window.usedPercent.formatted(.number.precision(.fractionLength(0...1)))
+            let remaining = window.lastKnownRemainingPercent?.formatted(.number.precision(.fractionLength(0...1))) ?? "—"
+            VStack(spacing: 3) {
+                HStack {
+                    Text(localizedWindowTitle(window, language: language)).font(.caption)
+                    Spacer()
+                    Text(expired
+                         ? localized("再取得待ち", "Waiting for refresh", language: language)
+                         : localized("\(used)% 使用 · 残\(remaining)%", "\(used)% used · \(remaining)% left", language: language))
+                        .font(.system(size: 11, weight: .medium)).monospacedDigit().foregroundStyle(expired ? .secondary : color)
+                }
+                GeometryReader { geometry in
+                    Capsule().fill(color.opacity(0.12))
+                        .overlay(alignment: .leading) {
+                            Capsule().fill(color)
+                                .frame(width: geometry.size.width * (expired ? 0 : min(max(window.usedPercent, 0), 100) / 100))
+                        }
+                }
+                .frame(height: 4)
                 .opacity(expired ? 0.35 : 1)
                 .accessibilityLabel(localized("\(window.title)の使用率", "\(localizedWindowTitle(window, language: language)) usage", language: language))
-                .accessibilityValue(expired ? localized("再取得待ち", "Waiting for refresh", language: language) : "\(window.usedPercent.formatted())%")
-            if let reset = window.resetsAt {
-                HStack {
-                    Text(expired
-                         ? localized("リセット時刻を過ぎています", "Reset time has passed", language: language)
-                         : localized("リセット \(reset.formatted(.dateTime.month().day().hour().minute().locale(language.locale)))", "Resets \(reset.formatted(.dateTime.month().day().hour().minute().locale(language.locale)))", language: language))
-                    Spacer()
-                    if !expired { Text(reset, style: .relative) }
-                }.font(.system(size: 9)).foregroundStyle(.secondary)
+                .accessibilityValue(expired ? localized("再取得待ち", "Waiting for refresh", language: language) : "\(used)%")
+                if let reset = window.resetsAt {
+                    HStack {
+                        Text(expired
+                             ? localized("リセット時刻を過ぎています", "Reset time has passed", language: language)
+                             : localized("リセット \(reset.formatted(.dateTime.month().day().hour().minute().locale(language.locale)))", "Resets \(reset.formatted(.dateTime.month().day().hour().minute().locale(language.locale)))", language: language))
+                        Spacer()
+                        if !expired { Text(reset, style: .relative) }
+                    }.font(.system(size: 9)).foregroundStyle(.secondary)
+                }
             }
         }
+    }
+}
+
+private struct ResetCreditRow: View {
+    let credits: ResetCreditSnapshot
+    let language: AppLanguage
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            let count = credits.remainingCount(at: context.date)
+            let expiry = credits.nextExpiry(at: context.date)
+            // Unused resets are lost at expiry, so the last three days stand out.
+            let soon = expiry.map { $0.timeIntervalSince(context.date) < 3 * 86_400 } ?? false
+            VStack(spacing: 3) {
+                HStack {
+                    Text(localized("リセット権", "Banked resets", language: language)).font(.caption)
+                    Spacer()
+                    Text(localized("残り\(count)回", "\(count) left", language: language))
+                        .font(.system(size: 11, weight: .medium)).monospacedDigit()
+                        .foregroundStyle(count == 0 ? .secondary : soon ? Color.orange : .primary)
+                }
+                if count > 0, let expiry {
+                    HStack {
+                        Text(localized("最短の期限 \(format(expiry))", "Next expires \(format(expiry))", language: language))
+                        Spacer()
+                        Text(expiry, style: .relative)
+                    }.font(.system(size: 9)).foregroundStyle(soon ? Color.orange : .secondary)
+                }
+            }
+            .help(help(at: context.date))
+        }
+    }
+
+    private func format(_ date: Date) -> String {
+        date.formatted(.dateTime.month().day().hour().minute().locale(language.locale))
+    }
+
+    private func help(at now: Date) -> String {
+        let rows = credits.credits.filter { $0.expiresAt.map { $0 > now } ?? true }.map { credit in
+            let title = credit.title ?? localized("リセット権", "Reset", language: language)
+            guard let expiry = credit.expiresAt else { return title }
+            return localized("\(title) · 期限 \(format(expiry))", "\(title) · expires \(format(expiry))", language: language)
+        }
+        let fetched = localized("取得: \(credits.observedAt.formatted())。使用はCodexの/usageから行います。",
+                                "Fetched: \(credits.observedAt.formatted()). Redeem from /usage in Codex.", language: language)
+        return (rows + [fetched]).joined(separator: "\n")
     }
 }
 
