@@ -13,6 +13,7 @@ Claude CodeとCodexの使用状況をメニューバーから確認するmacOS�
 - モデル別・effort別・モデル×effortのトークン内訳を切り替え。行にカーソルを合わせるとキャッシュの内訳も表示
 - トークン利用量をAPI標準単価へ換算した推定コスト（USD）を全体と内訳に表示
 - サブスクリプション制限の使用率、リセット時刻、取得データの古さを表示
+- Codexのリセット権（banked reset）の残り回数と最短の期限を表示。期限まで3日を切ると色で知らせる。Claudeは確認ページへのリンクを表示
 - 30秒ごとにローカルログの変更分を読み込む
 - Claude Codeの既存status lineを保持する接続・解除
 
@@ -49,8 +50,11 @@ open dist/Ratok.app
 | Codex | `~/.codex/sessions/**/*.jsonl` | token_countの累積値の差分を集計。同じ累積値の繰り返しは加算しない |
 | Claudeの制限 | status lineからの`rate_limits` | 接続以降に取得した5時間・週間・追加利用の枠 |
 | Codexの制限 | token_countの`rate_limits`／`additional_rate_limits` | Codex全体の枠とログに記録された追加枠を個別表示。Luna Reserveなどの別枠は通常枠へ混ぜない |
+| Codexのリセット権 | `codex app-server`の`account/rateLimits/read` | 未使用のリセット権の回数と期限。リセット権があれば24時間ごとと最短の期限、なければ1時間ごと、および手動更新時に取得 |
 
 Codexのデータ構造: [OpenAI Codex protocol](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs)
+
+Codexのリセット権はログに記録されないため、Codex CLIのapp serverをログインシェル経由で短時間起動して読み取ります。認証はCodex CLIが行います。取得に失敗した場合（未インストール、未ログイン、オフライン）は直前の値を保持して10分後に再試行し、一度も取得できていなければ表示しません。Ratokは認証トークンを読まず、リセット権を使用することもありません。Claude Codeのリセット権は、status lineなど公式の取得手段がないため、[claude.aiの使用状況ページ](https://claude.ai/settings/usage)へのリンクのみ表示します。
 
 内訳は合計と同じ期間・重複排除を使い、入力＋出力が多い順に表示します。Codexは`turn_context`の`model`／`effort`を次のターンまで適用し、セッション途中の切り替えも反映します。Claude Codeはassistantの`message.model`と`perTurnEffort`（未記録なら`effort`）を使います。記録がない項目は「不明」に含め、現在の設定から過去の値を推測しません。
 

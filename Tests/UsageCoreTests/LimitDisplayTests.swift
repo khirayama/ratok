@@ -41,3 +41,50 @@ func invalidLimitPercentageIsUnavailable(_ used: Double) {
     let window = LimitWindow(id: "five_hour", title: "5時間", usedPercent: used, resetsAt: nil)
     #expect(window.remainingPercent(at: Date()) == nil)
 }
+
+private func snapshot(_ read: ResetCreditRead?) throws -> ResetCreditSnapshot {
+    guard case .available(let snapshot) = try #require(read) else { throw CocoaError(.coderInvalidValue) }
+    return snapshot
+}
+
+@Test func codexResetCreditsKeepAvailableCreditsAndExpiry() throws {
+    let now = Date(timeIntervalSince1970: 1_000)
+    let line = Data(#"{"id":2,"result":{"rateLimitResetCredits":{"availableCount":3,"credits":[{"id":"a","resetType":"codexRateLimits","status":"available","grantedAt":1,"expiresAt":5000,"title":"Full reset","description":null},{"id":"b","status":"available","expiresAt":2000,"title":""},{"id":"c","status":"available","expiresAt":500,"title":null},{"id":"d","status":"redeemed","expiresAt":1500}]}}}"#.utf8)
+    let credits = try snapshot(CodexAppServer.resetCredits(fromResponse: line, id: 2, now: now))
+    #expect(credits.credits.map(\.id) == ["a", "b", "c"])
+    #expect(credits.credits[0].title == "Full reset")
+    #expect(credits.credits[1].title == nil)
+    // The credit that expired before `now` is no longer usable.
+    #expect(credits.remainingCount(at: now) == 2)
+    #expect(credits.nextExpiry(at: now) == Date(timeIntervalSince1970: 2000))
+}
+
+@Test func codexResetCreditsWithoutDetailsKeepTheCount() throws {
+    let line = Data(#"{"id":2,"result":{"rateLimitResetCredits":{"availableCount":1,"credits":null}}}"#.utf8)
+    let credits = try snapshot(CodexAppServer.resetCredits(fromResponse: line, id: 2, now: Date()))
+    #expect(credits.remainingCount(at: Date()) == 1)
+    #expect(credits.nextExpiry(at: Date()) == nil)
+}
+
+@Test(arguments: [
+    (#"{"id":2,"result":{"rateLimitResetCredits":null}}"#, ResetCreditRead.unavailable),
+    (#"{"id":2,"error":{"code":-32600,"message":"not signed in"}}"#, .failed),
+    (#"{"id":1,"result":{"rateLimitResetCredits":{"availableCount":1,"credits":[]}}}"#, nil),
+    (#"{"method":"account/updated","params":{}}"#, nil),
+    ("not json", nil),
+] as [(String, ResetCreditRead?)])
+func codexResetCreditsClassifyOtherMessages(_ line: String, _ expected: ResetCreditRead?) {
+    #expect(CodexAppServer.resetCredits(fromResponse: Data(line.utf8), id: 2, now: Date()) == expected)
+}
+
+@Test func resetCreditsRefetchDailyUntilTheEarliestExpiryAndHourlyWhenEmpty() {
+    let now = Date(timeIntervalSince1970: 0)
+    func credits(_ expiries: [TimeInterval]) -> ResetCreditSnapshot {
+        let rows = expiries.enumerated().map { ResetCredit(id: "\($0.offset)", expiresAt: Date(timeIntervalSince1970: $0.element)) }
+        return ResetCreditSnapshot(availableCount: rows.count, credits: rows, observedAt: now)
+    }
+    #expect(credits([10 * 86_400, 20 * 86_400]).nextFetch(after: now) == Date(timeIntervalSince1970: 86_400))
+    #expect(credits([3_000, 20 * 86_400]).nextFetch(after: now) == Date(timeIntervalSince1970: 3_000))
+    #expect(credits([]).nextFetch(after: now) == Date(timeIntervalSince1970: 3_600))
+    #expect(ResetCreditSnapshot(availableCount: 1, credits: [], observedAt: now).nextFetch(after: now) == Date(timeIntervalSince1970: 86_400))
+}

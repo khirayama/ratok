@@ -29,12 +29,15 @@ final class UsageStore {
         }
     }
     var snapshots: [Provider: UsageSnapshot] = [:]
+    var codexResetCredits: ResetCreditSnapshot?
     var refreshing = false
     var updatedAt: Date?
     var bridgeInstalled = BridgeInstaller().installed
     var error: String?
     @ObservationIgnored private let scanner = UsageScanner()
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    @ObservationIgnored private var resetCreditsRequestedAt: Date?
+    @ObservationIgnored private var resetCreditsNextFetch: Date?
 
     func menuPercentageText(for provider: Provider, window: LimitWindow?) -> String {
         let percentage: Double?
@@ -126,10 +129,11 @@ final class UsageStore {
         }
     }
 
-    func refresh() async {
+    func refresh(manual: Bool = false) async {
         guard !refreshing else { return }
         refreshing = true
         defer { refreshing = false }
+        refreshResetCredits(force: manual)
         let selectedPeriod = period
         let now = Date()
         let start = selectedPeriod.start(now: now)
@@ -145,6 +149,31 @@ final class UsageStore {
         snapshots = [.claude: claude, .codex: codex]
         updatedAt = Date()
         bridgeInstalled = BridgeInstaller().installed
+    }
+
+    private func refreshResetCredits(force: Bool) {
+        // Banked resets come from the network and rarely change, so each answer schedules the next read.
+        let now = Date()
+        if let last = resetCreditsRequestedAt, now.timeIntervalSince(last) < 10 { return }
+        if !force, let next = resetCreditsNextFetch, now < next { return }
+        resetCreditsRequestedAt = now
+        // Until the answer arrives, don't start a second read on the next 30-second tick.
+        resetCreditsNextFetch = now.addingTimeInterval(600)
+        Task {
+            let read = await Task.detached(operation: { CodexAppServer.readResetCredits() }).value
+            let finished = Date()
+            switch read {
+            case .available(let credits):
+                codexResetCredits = credits
+                resetCreditsNextFetch = credits.nextFetch(after: finished)
+            case .unavailable:
+                codexResetCredits = nil
+                resetCreditsNextFetch = finished.addingTimeInterval(3600)
+            case .failed:
+                // Offline, signed out, or Codex missing keeps the last known value; retry sooner.
+                resetCreditsNextFetch = finished.addingTimeInterval(600)
+            }
+        }
     }
 
     func toggleBridge() {
