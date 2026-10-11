@@ -15,6 +15,7 @@ Claude CodeとCodexの使用状況をメニューバーから確認するmacOS�
 - サブスクリプション制限の使用率、リセット時刻、取得データの古さを表示
 - Codexのリセット権（banked reset）の残り回数と最短の期限を表示。期限まで3日を切ると色で知らせる。Claudeは確認ページへのリンクを表示
 - 30秒ごとにローカルログの変更分を読み込む
+- Codexを起動していなくても、5分ごとに制限を取得してリセットを反映
 - Claude Codeの既存status lineを保持する接続・解除
 
 ## ライセンス
@@ -38,7 +39,7 @@ open dist/Ratok.app
 
 接続時にユーザー設定の`statusLine.command`をラップし、元のコマンドに同じ標準入力を渡します。paddingなど既存の設定も保持します。設定を再読み込みしない既存セッションでは、Claude Codeを再起動してください。プロジェクト単位のstatus line設定がユーザー設定より優先される場合、その設定にも同様の連携が必要です。
 
-歯車メニューの「Claude連携を解除」で元のstatus line設定に戻ります。接続後にユーザーが別のコマンドへ変更した場合は、その変更を保持します。連携用実行ファイルと元のstatus lineのバックアップは`~/Library/Application Support/Ratok/`へ保存されます。旧版の連携と保存済みレート制限情報も引き続き読み込みます。レート制限情報のみを保存し、認証トークンは読みません。
+歯車メニューの「Claude連携を解除」で元のstatus line設定に戻ります。接続後にユーザーが別のコマンドへ変更した場合は、その変更を保持します。連携用実行ファイルと元のstatus lineのバックアップは`~/Library/Application Support/Ratok/`へ保存されます。旧版の連携と保存済みレート制限情報も引き続き読み込みます。連携で保存するのはレート制限情報のみです。
 
 公式仕様: [Claude Code status line](https://code.claude.com/docs/en/statusline)
 
@@ -49,12 +50,12 @@ open dist/Ratok.app
 | Claude Code | `~/.claude/projects/**/*.jsonl`（サブエージェントを含む） | assistantのusageをメッセージ・リクエストIDで重複排除。キャッシュ読込・作成を入力に含める |
 | Codex | `~/.codex/sessions/**/*.jsonl` | token_countの累積値の差分を集計。同じ累積値の繰り返しは加算しない |
 | Claudeの制限 | status lineからの`rate_limits` | 接続以降に取得した5時間・週間・追加利用の枠 |
-| Codexの制限 | token_countの`rate_limits`／`additional_rate_limits`、`codex app-server`の`account/rateLimits/read` | Codex全体の枠と追加枠を個別表示。Luna Reserveなどの別枠は通常枠へ混ぜず、ログに記録がない間もapp serverから10分ごとに取得して常時表示 |
-| Codexのリセット権 | `codex app-server`の`account/rateLimits/read` | 未使用のリセット権の回数と期限。制限と同じ応答から10分ごと、および手動更新時に取得 |
+| Codexの制限 | token_countの`rate_limits`／`additional_rate_limits`、`codex app-server`の`account/rateLimits/read` | Codex全体の枠と追加枠を個別表示。Luna Reserveなどの別枠は通常枠へ混ぜず、ログに記録がない間もapp serverから5分ごとに取得して常時表示 |
+| Codexのリセット権 | `codex app-server`の`account/rateLimits/read` | 未使用のリセット権の回数と期限。制限と同じ応答から5分ごと、および手動更新時に取得 |
 
 Codexのデータ構造: [OpenAI Codex protocol](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs)
 
-Codexのリセット権と、利用中でない枠（Luna Reserveなど）の制限はログに記録されないため、Codex CLIのapp serverをログインシェル経由で短時間起動して読み取ります。認証はCodex CLIが行います。取得に失敗した場合（未インストール、未ログイン、オフライン）は直前の値を保持して10分後に再試行し、一度も取得できていなければ表示しません。Ratokは認証トークンを読まず、リセット権を使用することもありません。Claude Codeのリセット権は、status lineなど公式の取得手段がないため、[claude.aiの使用状況ページ](https://claude.ai/settings/usage)へのリンクのみ表示します。
+Codexのリセット権と、利用中でない枠（Luna Reserveなど）の制限はログに記録されないため、Codex CLIのapp serverをログインシェル経由で短時間起動して読み取ります。認証はCodex CLIが行います。取得に失敗した場合（未インストール、未ログイン、オフライン）は直前の値を保持して5分後に再試行し、一度も取得できていなければ表示しません。Ratokは認証トークンを読まず、リセット権を使用することもありません。Claude Codeのリセット権は、status lineなど公式の取得手段がないため、[claude.aiの使用状況ページ](https://claude.ai/settings/usage)へのリンクのみ表示します。
 
 内訳は合計と同じ期間・重複排除を使い、入力＋出力が多い順に表示します。Codexは`turn_context`の`model`／`effort`を次のターンまで適用し、セッション途中の切り替えも反映します。Claude Codeはassistantの`message.model`と`perTurnEffort`（未記録なら`effort`）を使います。記録がない項目は「不明」に含め、現在の設定から過去の値を推測しません。
 
