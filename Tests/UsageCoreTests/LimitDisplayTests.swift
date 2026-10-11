@@ -117,3 +117,27 @@ func codexResetCreditsClassifyOtherMessages(_ line: String, _ expected: ResetCre
     let reserveLog = LimitSnapshot(windows: [reserve], observedAt: new)
     #expect(reserveLog.merging(account).windows.map(\.id) == ["primary", "base_model_inference_primary"])
 }
+
+@Test func claudeAccountLimitsReadWindowsAndEnabledExtraUsage() throws {
+    let now = Date(timeIntervalSince1970: 1_000)
+    let body = #"{"five_hour":{"utilization":6.0,"resets_at":"2026-10-11T06:49:59.587124+00:00"},"seven_day":{"utilization":95,"resets_at":"2026-10-13T03:59:59.587142+00:00"},"seven_day_opus":null,"extra_usage":{"is_enabled":false,"utilization":null}}"#
+    let limits = try #require(ClaudeAccount.limits(fromResponse: Data(body.utf8), now: now))
+    #expect(limits.windows.map(\.id) == ["five_hour", "seven_day"])
+    #expect(limits.windows.map(\.usedPercent) == [6, 95])
+    #expect(limits.windows[0].resetsAt.map { Int($0.timeIntervalSince1970) } == 1_791_701_399)
+    #expect(limits.observedAt == now)
+    let extra = #"{"five_hour":null,"extra_usage":{"is_enabled":true,"utilization":40}}"#
+    #expect(ClaudeAccount.limits(fromResponse: Data(extra.utf8), now: now)?.windows.map(\.id) == ["spend_limit"])
+    #expect(ClaudeAccount.limits(fromResponse: Data(#"{"five_hour":null,"seven_day":null}"#.utf8), now: now) == nil)
+    #expect(ClaudeAccount.limits(fromResponse: Data("not json".utf8), now: now) == nil)
+}
+
+@Test func claudeAccessTokenIsUsedOnlyUntilItExpires() {
+    let now = Date(timeIntervalSince1970: 1_000)
+    func token(_ json: String) -> String? { ClaudeAccount.accessToken(fromCredentials: Data(json.utf8), now: now) }
+    #expect(token(#"{"claudeAiOauth":{"accessToken":"t","expiresAt":1000001}}"#) == "t")
+    #expect(token(#"{"claudeAiOauth":{"accessToken":"t","expiresAt":1000000}}"#) == nil)
+    #expect(token(#"{"claudeAiOauth":{"accessToken":"t"}}"#) == "t")
+    #expect(token(#"{"claudeAiOauth":{"accessToken":""}}"#) == nil)
+    #expect(token(#"{"mcpOAuth":{}}"#) == nil)
+}

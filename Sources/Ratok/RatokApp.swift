@@ -26,6 +26,8 @@ enum EntryPoint {
                     let usd = cost.amountUSD.map { String(format: "%.6f", $0) } ?? "unavailable"
                     print("\(provider.name): input=\(snapshot.tokens.input) output=\(snapshot.tokens.output) cacheRead=\(snapshot.tokens.cacheRead) cacheWrite=\(snapshot.tokens.cacheWrite) files=\(snapshot.files) limits=\(snapshot.limits?.windows.count ?? 0) issues=\(snapshot.issues.count) apiEstimateUSD=\(usd) unpricedTokens=\(cost.unpricedTokens)")
                 }
+                let account = await ClaudeAccount.readLimits()
+                print("Claude Code account limits: " + (account?.windows.map { "\($0.id)=\($0.usedPercent)%" }.joined(separator: " ") ?? "unavailable"))
                 exit(0)
             }
             dispatchMain()
