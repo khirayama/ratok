@@ -144,7 +144,7 @@ private struct ProviderCard: View {
                 }
                 if let limits = snapshot.limits, !limits.windows.isEmpty {
                     ForEach(limits.windows) { window in LimitRow(window: window, accent: accent, language: language) }
-                    if Date().timeIntervalSince(limits.observedAt) > 300 {
+                    if Date().timeIntervalSince(limits.observedAt) > 600 {
                         Text(localized("過去の取得値です。\(provider.name)の利用時に更新されます。", "This value is from an earlier fetch. It updates when you use \(provider.name).", language: language))
                             .font(.system(size: 10)).foregroundStyle(.secondary)
                     }
