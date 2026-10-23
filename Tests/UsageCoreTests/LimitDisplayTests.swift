@@ -84,7 +84,7 @@ func codexResetCreditsClassifyOtherMessages(_ line: String, _ expected: ResetCre
         return ResetCreditSnapshot(availableCount: rows.count, credits: rows, observedAt: now)
     }
     #expect(credits([10.0 * 86_400, 20.0 * 86_400]).nextFetch(after: now) == Date(timeIntervalSince1970: 86_400))
-    #expect(credits([3_000, 20 * 86_400]).nextFetch(after: now) == Date(timeIntervalSince1970: 3_000))
+    #expect(credits([3_000.0, 20.0 * 86_400]).nextFetch(after: now) == Date(timeIntervalSince1970: 3_000))
     #expect(credits([]).nextFetch(after: now) == Date(timeIntervalSince1970: 3_600))
     #expect(ResetCreditSnapshot(availableCount: 1, credits: [], observedAt: now).nextFetch(after: now) == Date(timeIntervalSince1970: 86_400))
 }
