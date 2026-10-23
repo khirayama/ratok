@@ -46,7 +46,7 @@ struct ParsedLog: Sendable {
             let read = Self.integer(usage, "cache_read_input_tokens")
             let write = Self.integer(usage, "cache_creation_input_tokens")
             let creation = usage["cache_creation"] as? [String: Any] ?? [:]
-            let tokens = TokenUsage(input: Self.integer(usage, "input_tokens") + read + write,
+            let tokens = TokenUsage(input: TokenUsage.sum(TokenUsage.sum(Self.integer(usage, "input_tokens"), read), write),
                                     output: Self.integer(usage, "output_tokens"), cacheRead: read, cacheWrite: write,
                                     cacheWrite1h: min(write, Self.integer(creation, "ephemeral_1h_input_tokens")))
             guard let id = message["id"] as? String ?? object["uuid"] as? String else { return }

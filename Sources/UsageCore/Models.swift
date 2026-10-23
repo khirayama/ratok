@@ -27,15 +27,21 @@ public struct TokenUsage: Codable, Sendable, Equatable {
     /// One-hour Claude cache writes, included in `cacheWrite`.
     public var cacheWrite1h: Int = 0
     public init(input: Int = 0, output: Int = 0, cacheRead: Int = 0, cacheWrite: Int = 0, cacheWrite1h: Int = 0) {
-        self.input = input; self.output = output; self.cacheRead = cacheRead; self.cacheWrite = cacheWrite
-        self.cacheWrite1h = cacheWrite1h
+        self.input = max(0, input); self.output = max(0, output)
+        self.cacheRead = max(0, cacheRead); self.cacheWrite = max(0, cacheWrite)
+        self.cacheWrite1h = max(0, cacheWrite1h)
     }
-    public var uncachedInput: Int { max(0, input - cacheRead - cacheWrite) }
-    public var total: Int { input + output }
+    public var uncachedInput: Int { max(0, max(0, input - cacheRead) - cacheWrite) }
+    public var total: Int { Self.sum(input, output) }
+    /// Corrupt logs must not crash the app with an integer overflow. Saturate counters at Int.max.
+    static func sum(_ lhs: Int, _ rhs: Int) -> Int {
+        let (value, overflow) = max(0, lhs).addingReportingOverflow(max(0, rhs))
+        return overflow ? .max : value
+    }
     public static func + (lhs: Self, rhs: Self) -> Self {
-        Self(input: lhs.input + rhs.input, output: lhs.output + rhs.output,
-             cacheRead: lhs.cacheRead + rhs.cacheRead, cacheWrite: lhs.cacheWrite + rhs.cacheWrite,
-             cacheWrite1h: lhs.cacheWrite1h + rhs.cacheWrite1h)
+        Self(input: sum(lhs.input, rhs.input), output: sum(lhs.output, rhs.output),
+             cacheRead: sum(lhs.cacheRead, rhs.cacheRead), cacheWrite: sum(lhs.cacheWrite, rhs.cacheWrite),
+             cacheWrite1h: sum(lhs.cacheWrite1h, rhs.cacheWrite1h))
     }
     static func delta(_ next: Self, _ previous: Self) -> Self {
         Self(input: max(0, next.input - previous.input), output: max(0, next.output - previous.output),
@@ -46,11 +52,11 @@ public struct TokenUsage: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey { case input, output, cacheRead, cacheWrite, cacheWrite1h }
     public init(from decoder: any Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        input = try values.decode(Int.self, forKey: .input)
-        output = try values.decode(Int.self, forKey: .output)
-        cacheRead = try values.decode(Int.self, forKey: .cacheRead)
-        cacheWrite = try values.decode(Int.self, forKey: .cacheWrite)
-        cacheWrite1h = try values.decodeIfPresent(Int.self, forKey: .cacheWrite1h) ?? 0
+        self.init(input: try values.decode(Int.self, forKey: .input),
+                  output: try values.decode(Int.self, forKey: .output),
+                  cacheRead: try values.decode(Int.self, forKey: .cacheRead),
+                  cacheWrite: try values.decode(Int.self, forKey: .cacheWrite),
+                  cacheWrite1h: try values.decodeIfPresent(Int.self, forKey: .cacheWrite1h) ?? 0)
     }
 }
 

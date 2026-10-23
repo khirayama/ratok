@@ -16,8 +16,8 @@ public struct CostEstimate: Sendable, Equatable {
     public static func + (lhs: Self, rhs: Self) -> Self {
         var result = Self()
         result.subtotalUSD = lhs.subtotalUSD + rhs.subtotalUSD
-        result.pricedTokens = lhs.pricedTokens + rhs.pricedTokens
-        result.unpricedTokens = lhs.unpricedTokens + rhs.unpricedTokens
+        result.pricedTokens = TokenUsage.sum(lhs.pricedTokens, rhs.pricedTokens)
+        result.unpricedTokens = TokenUsage.sum(lhs.unpricedTokens, rhs.unpricedTokens)
         return result
     }
     fileprivate init(usd: Double, priced: Int, unpriced: Int) {
