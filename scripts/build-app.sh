@@ -1,9 +1,11 @@
 #!/bin/sh
 set -eu
 cd "$(dirname "$0")/.."
-swift build -c release
+swift build -c release --force-resolved-versions
 ratok_bin=$(swift build -c release --show-bin-path)
+rm -rf dist/Ratok.app
 mkdir -p dist/Ratok.app/Contents/MacOS dist/Ratok.app/Contents/Frameworks dist/Ratok.app/Contents/Resources
+ditto "$ratok_bin/Ratok_Ratok.bundle" dist/Ratok.app/Contents/Resources/Ratok_Ratok.bundle
 cp .build/artifacts/sparkle/Sparkle/LICENSE dist/Ratok.app/Contents/Resources/Sparkle-LICENSE
 ditto .build/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework dist/Ratok.app/Contents/Frameworks/Sparkle.framework
 cp "$ratok_bin/Ratok" dist/Ratok.app/Contents/MacOS/Ratok

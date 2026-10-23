@@ -9,3 +9,12 @@ xcuserdata/
 
 # SwiftPM workspace user data
 .swiftpm/
+
+# Local secrets and signing material
+.env
+.env.*
+!.env.example
+*.p12
+*.p8
+*.pem
+*sparkle-private-key*

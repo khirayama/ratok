@@ -6,6 +6,13 @@ cd "$(dirname "$0")/.."
 : "${RATOK_UPDATE_PUBLIC_KEY:?Set the Sparkle public key as a GitHub Actions variable}"
 : "${SPARKLE_PRIVATE_KEY:?Set the exported Sparkle private key as a GitHub Actions secret}"
 
+# Do not pass the signing secret to the compiler, package resolver, or build scripts.
+sparkle_private_key=$SPARKLE_PRIVATE_KEY
+unset SPARKLE_PRIVATE_KEY
+case "$GITHUB_REF_NAME" in
+    v*) ;;
+    *) echo "Release tag must start with v" >&2; exit 1 ;;
+esac
 version=${GITHUB_REF_NAME#v}
 python3 - "$version" <<'PYVERSION'
 import re
@@ -24,12 +31,13 @@ sh scripts/build-app.sh
 
 codesign --verify --deep --strict --verbose=2 dist/Ratok.app
 
+rm -rf dist/release
 mkdir -p dist/release
 archive="Ratok-$version.zip"
 ditto -c -k --sequesterRsrc --keepParent dist/Ratok.app "dist/release/$archive"
 
 sparkle_bin=".build/artifacts/sparkle/Sparkle/bin"
-printf '%s' "$SPARKLE_PRIVATE_KEY" | \
+printf '%s' "$sparkle_private_key" | \
     "$sparkle_bin/generate_appcast" --ed-key-file - \
     --download-url-prefix "https://github.com/khirayama/ratok/releases/download/$GITHUB_REF_NAME/" \
     -o dist/release/appcast.xml dist/release

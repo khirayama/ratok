@@ -3,9 +3,15 @@ import SwiftUI
 import UsageCore
 
 extension Provider {
+    private static var resourceBundle: Bundle {
+        // Signed apps keep resources under Contents/Resources; swift run uses Bundle.module.
+        if let url = Bundle.main.resourceURL?.appendingPathComponent("Ratok_Ratok.bundle"),
+           let bundle = Bundle(url: url) { return bundle }
+        return .module
+    }
     var assetName: String { self == .claude ? "claude-mark" : "codex-mark" }
     var markImage: NSImage {
-        guard let url = Bundle.module.url(forResource: assetName, withExtension: "png"),
+        guard let url = Self.resourceBundle.url(forResource: assetName, withExtension: "png"),
               let image = NSImage(contentsOf: url) else { return NSImage(size: .zero) }
         image.isTemplate = true
         return image

@@ -52,7 +52,7 @@ final class UsageStore {
                 : window?.remainingPercent(at: Date())
         }
         guard let percentage else { return "—" }
-        return "\(Int(percentage.rounded()))%"
+        return String(format: "%.0f%%", percentage.rounded())
     }
 
     func menuBarWindows(for provider: Provider) -> [LimitWindow] {
