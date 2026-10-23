@@ -62,6 +62,7 @@ private func temporaryDirectory() throws -> URL {
     #expect(parsed.events.count == 1)
     #expect(event.tokens == TokenUsage(input: 160, output: 30, cacheRead: 100, cacheWrite: 50))
     #expect(event.tokens.uncachedInput == 10)
+    #expect(event.tokens.uncachedTotal == 40)
 }
 
 @Test func dailyTotalsUseEventTimestampsAndIncrementalReadsWaitForCompleteLines() async throws {
@@ -297,4 +298,5 @@ private func temporaryDirectory() throws -> URL {
     calendar.timeZone = try #require(TimeZone(identifier: "America/New_York"))
     let now = try #require(ParsedLog.date("2026-03-09T12:00:00Z"))
     #expect(UsagePeriod.week.start(now: now, calendar: calendar) == ParsedLog.date("2026-03-03T05:00:00Z"))
+    #expect(UsagePeriod.thisMonth.start(now: now, calendar: calendar) == ParsedLog.date("2026-03-01T05:00:00Z"))
 }

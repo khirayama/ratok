@@ -6,15 +6,22 @@ public enum Provider: String, CaseIterable, Sendable, Identifiable {
     public var name: String { self == .claude ? "Claude Code" : "Codex" }
 }
 
-public enum UsagePeriod: Int, CaseIterable, Sendable, Identifiable {
-    case today = 1, week = 7, month = 30
-    public var id: Int { rawValue }
+public enum UsagePeriod: String, CaseIterable, Sendable, Identifiable {
+    case today, week, month, thisMonth
+    public var id: String { rawValue }
     public var title: String {
-        switch self { case .today: "今日"; case .week: "7日間"; case .month: "30日間" }
+        switch self { case .today: "今日"; case .week: "7日間"; case .month: "30日間"; case .thisMonth: "今月" }
     }
     public func start(now: Date, calendar: Calendar = .current) -> Date {
         let day = calendar.startOfDay(for: now)
-        return calendar.date(byAdding: .day, value: 1 - rawValue, to: day) ?? day
+        let days: Int
+        switch self {
+        case .today: days = 1
+        case .week: days = 7
+        case .month: days = 30
+        case .thisMonth: return calendar.dateInterval(of: .month, for: now)?.start ?? day
+        }
+        return calendar.date(byAdding: .day, value: 1 - days, to: day) ?? day
     }
 }
 
@@ -33,6 +40,7 @@ public struct TokenUsage: Codable, Sendable, Equatable {
     }
     public var uncachedInput: Int { max(0, max(0, input - cacheRead) - cacheWrite) }
     public var total: Int { Self.sum(input, output) }
+    public var uncachedTotal: Int { Self.sum(uncachedInput, output) }
     /// Corrupt logs must not crash the app with an integer overflow. Saturate counters at Int.max.
     static func sum(_ lhs: Int, _ rhs: Int) -> Int {
         let (value, overflow) = max(0, lhs).addingReportingOverflow(max(0, rhs))

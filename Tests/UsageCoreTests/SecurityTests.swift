@@ -17,6 +17,7 @@ import Testing
     #expect(total.output == Int.max)
     #expect(total.total == Int.max)
     #expect(total.uncachedInput == 0)
+    #expect(total.uncachedTotal == Int.max)
     let priced = APIPricing.estimate(model: "gpt-5", tokens: total)
     #expect((priced + priced).pricedTokens == Int.max)
     #expect(priced.amountUSD?.isFinite == true)
