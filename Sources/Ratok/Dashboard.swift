@@ -55,11 +55,20 @@ struct Dashboard: View {
                     Divider()
                     Toggle(localized("Codexの文字を表示", "Show Codex label", language: store.language), isOn: $store.showCodexNameInMenuBar)
                     Toggle(localized("CCの文字を表示", "Show CC label", language: store.language), isOn: $store.showClaudeNameInMenuBar)
+                    Toggle(localized("制限の割合を表示", "Show limit percentage", language: store.language), isOn: $store.showLimitsInMenuBar)
                     Toggle(localized("5h・週間の両方を表示", "Show both 5h and weekly limits", language: store.language), isOn: $store.showBothLimitWindowsInMenuBar)
+                        .disabled(!store.showLimitsInMenuBar)
                     Picker(localized("割合の表示", "Percentage display", language: store.language), selection: $store.menuBarPercentageMode) {
                         Text(localized("残量", "Remaining", language: store.language)).tag(MenuBarPercentageMode.remaining)
                         Text(localized("使用量", "Used", language: store.language)).tag(MenuBarPercentageMode.used)
-                    }
+                    }.disabled(!store.showLimitsInMenuBar)
+                    Toggle(localized("推定コストを表示", "Show estimated cost", language: store.language), isOn: $store.showCostInMenuBar)
+                    Toggle(localized("トークン量を表示", "Show token count", language: store.language), isOn: $store.showTokensInMenuBar)
+                    Toggle(localized("トークン量にキャッシュを含める", "Include cache in token count", language: store.language), isOn: $store.includeCacheInMenuBarTokens)
+                        .disabled(!store.showTokensInMenuBar)
+                    Picker(localized("コスト・トークンの期間", "Cost and token period", language: store.language), selection: $store.menuBarPeriod) {
+                        ForEach(UsagePeriod.allCases) { Text(periodTitle($0, language: store.language)).tag($0) }
+                    }.disabled(!store.showsMenuBarUsage)
                     Divider()
                     Button(store.bridgeInstalled
                            ? localized("Claude連携を解除", "Disconnect Claude integration", language: store.language)
@@ -336,14 +345,6 @@ private struct ResetCreditRow: View {
     }
 }
 
-private func periodTitle(_ period: UsagePeriod, language: AppLanguage) -> String {
-    switch period {
-    case .today: localized("今日", "Today", language: language)
-    case .week: localized("7日間", "7 days", language: language)
-    case .month: localized("30日間", "30 days", language: language)
-    }
-}
-
 private func groupingTitle(_ grouping: UsageGrouping, language: AppLanguage) -> String {
     switch grouping {
     case .model: localized("モデル別", "By model", language: language)
@@ -365,8 +366,4 @@ private func localizedIssue(_ issue: String, language: AppLanguage) -> String {
     case "一部のフォルダにアクセスできません。": "Some folders could not be accessed."
     default: issue
     }
-}
-
-private func compact(_ value: Int) -> String {
-    value.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)).locale(Locale(identifier: "en_US")))
 }

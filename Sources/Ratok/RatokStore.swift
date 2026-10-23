@@ -23,12 +23,43 @@ final class UsageStore {
     var menuBarPercentageMode = MenuBarPercentageMode(rawValue: UserDefaults.standard.string(forKey: "menuBarPercentageMode") ?? "remaining") ?? .remaining {
         didSet { UserDefaults.standard.set(menuBarPercentageMode.rawValue, forKey: "menuBarPercentageMode") }
     }
+    var showLimitsInMenuBar = UserDefaults.standard.object(forKey: "showLimitsInMenuBar") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showLimitsInMenuBar, forKey: "showLimitsInMenuBar") }
+    }
+    var showCostInMenuBar = UserDefaults.standard.bool(forKey: "showCostInMenuBar") {
+        didSet {
+            UserDefaults.standard.set(showCostInMenuBar, forKey: "showCostInMenuBar")
+            if showCostInMenuBar { Task { await refresh() } }
+        }
+    }
+    var showTokensInMenuBar = UserDefaults.standard.bool(forKey: "showTokensInMenuBar") {
+        didSet {
+            UserDefaults.standard.set(showTokensInMenuBar, forKey: "showTokensInMenuBar")
+            if showTokensInMenuBar { Task { await refresh() } }
+        }
+    }
+    var includeCacheInMenuBarTokens = UserDefaults.standard.bool(forKey: "includeCacheInMenuBarTokens") {
+        didSet { UserDefaults.standard.set(includeCacheInMenuBarTokens, forKey: "includeCacheInMenuBarTokens") }
+    }
+    var menuBarPeriod = UsagePeriod(rawValue: UserDefaults.standard.string(forKey: "menuBarPeriod") ?? "today") ?? .today {
+        didSet {
+            UserDefaults.standard.set(menuBarPeriod.rawValue, forKey: "menuBarPeriod")
+            guard oldValue != menuBarPeriod else { return }
+            menuBarSnapshots = [:]
+            if showsMenuBarUsage { Task { await refresh() } }
+        }
+    }
     var period = UsagePeriod.today {
         didSet {
-            if oldValue != period { snapshots = [:] }
+            guard oldValue != period else { return }
+            // Keep the menu bar's figures while the dashboard switches to another period.
+            if oldValue == menuBarPeriod { menuBarSnapshots = snapshots }
+            snapshots = [:]
         }
     }
     var snapshots: [Provider: UsageSnapshot] = [:]
+    /// Usage for the menu bar period, scanned only when it differs from the dashboard period.
+    var menuBarSnapshots: [Provider: UsageSnapshot] = [:]
     var codexResetCredits: ResetCreditSnapshot?
     @ObservationIgnored private var codexAccountLimits: LimitSnapshot?
     @ObservationIgnored private var claudeAccountLimits: LimitSnapshot?
@@ -83,7 +114,71 @@ final class UsageStore {
         ["secondary", "seven_day", "weekly", "7d"].contains(window.id) || window.title == "週間"
     }
 
+    var showsMenuBarUsage: Bool { showCostInMenuBar || showTokensInMenuBar }
+
+    /// The period that needs a scan of its own; nil when the dashboard's scan already covers it.
+    private var menuBarScanPeriod: UsagePeriod? {
+        showsMenuBarUsage && menuBarPeriod != period ? menuBarPeriod : nil
+    }
+
+    func menuBarUsage(for provider: Provider) -> UsageSnapshot? {
+        menuBarPeriod == period ? snapshots[provider] : menuBarSnapshots[provider]
+    }
+
+    func menuBarValues(for provider: Provider) -> [String] {
+        var values: [String] = []
+        if showLimitsInMenuBar { values.append(menuBarValue(for: provider)) }
+        let usage = menuBarUsage(for: provider)
+        if showCostInMenuBar { values.append(usage.map { menuBarCostText($0.estimatedCost) } ?? "—") }
+        if showTokensInMenuBar { values.append(usage.map { compact(menuBarTokenCount($0.tokens)) } ?? "—") }
+        return values
+    }
+
+    private func menuBarTokenCount(_ tokens: TokenUsage) -> Int {
+        includeCacheInMenuBarTokens ? tokens.total : tokens.uncachedTotal
+    }
+
+    private func menuBarCostText(_ cost: CostEstimate) -> String {
+        guard let amount = cost.amountUSD else { return "—" }
+        // Cents only add width once the amount reaches three digits.
+        guard amount >= 100 else { return cost.displayText }
+        let dollars = amount.formatted(.currency(code: "USD").precision(.fractionLength(0)).locale(Locale(identifier: "en_US")))
+        return dollars + (cost.isPartial ? "*" : "")
+    }
+
     func menuHelp(for provider: Provider) -> String {
+        var lines = showLimitsInMenuBar ? [limitHelp(for: provider)] : []
+        if showsMenuBarUsage { lines.append(usageHelp(for: provider)) }
+        return lines.isEmpty ? provider.name : lines.joined(separator: "\n")
+    }
+
+    private func usageHelp(for provider: Provider) -> String {
+        let period = periodTitle(menuBarPeriod, language: language)
+        guard let usage = menuBarUsage(for: provider) else {
+            return localized("\(provider.name): \(period)の使用量を集計中", "\(provider.name): loading usage for \(period)", language: language)
+        }
+        var parts: [String] = []
+        if showCostInMenuBar {
+            let cost = usage.estimatedCost
+            let text = cost.amountUSD == nil && language == .english ? "Unpriced" : cost.displayText
+            parts.append(localized("API換算 推定コスト \(text)", "estimated API cost \(text)", language: language))
+        }
+        if showTokensInMenuBar {
+            let tokens = usage.tokens
+            let count = menuBarTokenCount(tokens).formatted()
+            let input = (includeCacheInMenuBarTokens ? tokens.input : tokens.uncachedInput).formatted()
+            let cache = includeCacheInMenuBarTokens
+                ? localized("キャッシュ込み", "including cache", language: language)
+                : localized("キャッシュ除く", "excluding cache", language: language)
+            parts.append(localized("トークン \(count)（入力 \(input) · 出力 \(tokens.output.formatted())、\(cache)）",
+                                   "\(count) tokens (input \(input) · output \(tokens.output.formatted()), \(cache))",
+                                   language: language))
+        }
+        return localized("\(provider.name): \(period)の\(parts.joined(separator: "、"))",
+                         "\(provider.name): \(period) \(parts.joined(separator: ", "))", language: language)
+    }
+
+    private func limitHelp(for provider: Provider) -> String {
         let windows = menuBarWindows(for: provider)
         guard !windows.isEmpty else {
             return language == .japanese ? "\(provider.name): 制限未取得" : "\(provider.name): limits unavailable"
@@ -139,22 +234,32 @@ final class UsageStore {
         refreshCodexAccount(force: manual)
         refreshClaudeAccount(force: manual)
         let selectedPeriod = period
+        let selectedMenuBarPeriod = menuBarScanPeriod
         let now = Date()
-        let start = selectedPeriod.start(now: now)
-        let claude = await scanner.scan(provider: .claude, root: UsagePaths.claude.appendingPathComponent("projects"),
-                                        start: start, now: now, bridge: UsagePaths.claudeLimits)
-        let codex = await scanner.scan(provider: .codex, root: UsagePaths.codex.appendingPathComponent("sessions"), start: start, now: now)
+        let usage = await scanUsage(start: selectedPeriod.start(now: now), now: now)
+        var menuUsage: [Provider: UsageSnapshot] = [:]
+        if let selectedMenuBarPeriod {
+            menuUsage = await scanUsage(start: selectedMenuBarPeriod.start(now: now), now: now)
+        }
         // A period selection can change while disk reads are in progress.
-        guard selectedPeriod == period else {
+        guard selectedPeriod == period, selectedMenuBarPeriod == menuBarScanPeriod else {
             refreshing = false
             await refresh()
             return
         }
-        snapshots = [.claude: claude, .codex: codex]
+        snapshots = usage
+        menuBarSnapshots = menuUsage
         mergeCodexAccountLimits()
         mergeClaudeAccountLimits()
         updatedAt = Date()
         bridgeInstalled = BridgeInstaller().installed
+    }
+
+    private func scanUsage(start: Date, now: Date) async -> [Provider: UsageSnapshot] {
+        let claude = await scanner.scan(provider: .claude, root: UsagePaths.claude.appendingPathComponent("projects"),
+                                        start: start, now: now, bridge: UsagePaths.claudeLimits)
+        let codex = await scanner.scan(provider: .codex, root: UsagePaths.codex.appendingPathComponent("sessions"), start: start, now: now)
+        return [.claude: claude, .codex: codex]
     }
 
     /// Rollouts record only the pool a session used, so pools such as Luna Reserve come from the app server.

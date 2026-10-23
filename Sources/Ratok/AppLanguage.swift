@@ -30,6 +30,19 @@ func localizedWindowTitle(_ window: LimitWindow, language: AppLanguage) -> Strin
     }
 }
 
+func periodTitle(_ period: UsagePeriod, language: AppLanguage) -> String {
+    switch period {
+    case .today: localized("今日", "Today", language: language)
+    case .week: localized("7日間", "7 days", language: language)
+    case .month: localized("30日間", "30 days", language: language)
+    case .thisMonth: localized("今月", "This month", language: language)
+    }
+}
+
+func compact(_ value: Int) -> String {
+    value.formatted(.number.notation(.compactName).precision(.fractionLength(0...1)).locale(Locale(identifier: "en_US")))
+}
+
 func pricingAssumptions(language: AppLanguage) -> String {
     localized(
         APIPricing.assumptions,

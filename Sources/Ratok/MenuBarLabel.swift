@@ -40,7 +40,10 @@ struct MenuBarLabel: View {
                     if provider == .codex ? store.showCodexNameInMenuBar : store.showClaudeNameInMenuBar {
                         Text(provider.menuBarName)
                     }
-                    Text(store.menuBarValue(for: provider)).monospacedDigit()
+                    let values = store.menuBarValues(for: provider)
+                    if !values.isEmpty {
+                        Text(values.joined(separator: " ")).monospacedDigit()
+                    }
                 }
             }
         }
