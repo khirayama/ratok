@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+
+jobs:
+  check:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check and test
+        run: sh scripts/check.sh
+      - name: Verify app packaging
+        run: |
+          sh scripts/build-app.sh
+          codesign --verify --deep --strict --verbose=2 dist/Ratok.app
+          test -s dist/Ratok.app/Contents/Resources/Ratok_Ratok.bundle/codex-mark.png
+          test -s dist/Ratok.app/Contents/Resources/Ratok_Ratok.bundle/claude-mark.png

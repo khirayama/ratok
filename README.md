@@ -27,11 +27,11 @@ CodexとClaudeのマークは各社の商標です。画像の出典とライセ
 ## 起動
 
 ```sh
-sh scripts/build-app.sh
-open dist/Ratok.app
+rtk proxy sh scripts/build-app.sh
+rtk proxy open dist/Ratok.app
 ```
 
-`dist/Ratok.app`をApplicationsへ移動して使えます。ローカルビルドはアドホック署名です。GitHub Releasesから配布するビルドはDeveloper ID署名と公証を行います。Xcodeで`Package.swift`を開くこともできます。
+`dist/Ratok.app`をApplicationsへ移動して使えます。ローカルビルドと現在のGitHub Releasesのビルドはアドホック署名です。Developer ID署名と公証は未対応です。Xcodeで`Package.swift`を開くこともできます。
 
 ## Claude Codeの制限表示
 
@@ -85,16 +85,22 @@ Claudeは[公式のモデルID形式](https://platform.claude.com/docs/en/about-
 
 `CLAUDE_CONFIG_DIR`／`CODEX_HOME`／`RATOK_SUPPORT_DIR`がアプリの環境に存在する場合はカスタムパスを利用します。Finderから起動したアプリにはシェルの環境変数が引き継がれない場合があります。
 
-使用状況の取得はローカルで完結します。自動更新を有効にしたビルドでは、Sparkleが更新フィードと更新ファイルをHTTPSで取得します。会話内容は集計時にローカルで読み込み、メモリに保持するのはトークン数・日時・重複排除ID・モデル・effort・制限情報だけです。大きな期間の初回集計は時間がかかりますが、UIは操作できます。
+トークン利用量の集計はローカルで完結します。制限情報はCodex CLIのapp serverと、Claude Codeの認証情報を利用したAnthropicの使用状況エンドポイントからも取得します。Claudeの認証トークンはKeychain（未取得時はClaudeの認証ファイル）から読み取り、HTTPSで固定のAnthropicエンドポイントだけに送信します。HTTPリダイレクトは拒否し、レスポンス・Cookie・認証情報を共有キャッシュへ保存しません。Ratokはトークンを書き出しません。
+
+自動更新を有効にしたビルドでは、Sparkleが更新フィードと更新ファイルをHTTPSで取得します。会話内容は集計時にローカルで読み込み、メモリに保持するのはトークン数・日時・重複排除ID・モデル・effort・制限情報だけです。連携用ディレクトリと実行ファイルは権限`0700`、制限情報・status lineのバックアップ・更新したClaude設定は`0600`で保存します。大きな期間の初回集計は時間がかかりますが、UIは操作できます。
 
 ## 検証
 
 ```sh
-rtk swift test
+rtk proxy sh scripts/check.sh
 rtk proxy .build/debug/Ratok --diagnose
 ```
 
-テストでは累積値の重複、Claudeのストリーミング重複、日付境界、追記途中の行、ファイル置換、status lineの引き継ぎ・復元、モデル・effort集計、キャッシュ別のコスト計算を検証します。`--diagnose`は今日のトークン数・読み取ったファイル数・API換算推定コスト・単価未対応トークン数などの集計値を出力します。
+`scripts/check.sh`はシェル構文の検査と、コンパイラ警告をエラーとして扱うテストを実行します。依存関係はコミット済み`Package.resolved`へ固定し、不整合があれば失敗します。RTKはコマンド出力を圧縮するローカル用ツールで、アプリのビルド自体には不要です。
+
+CIはpush／Pull Request時に同じ検査に加え、アプリのリリースビルド・署名検証・画像リソースの梱包確認を実行します。CIとReleaseはmacOS 15上のXcode 26.2を明示的に選択します。ローカルでもSwift 6.2以降を含むXcodeを選択してください。DependabotはSwiftパッケージとGitHub Actionsの更新を毎週確認します。ActionsはコミットSHAへ固定しています。
+
+テストでは累積値の重複、Claudeのストリーミング重複、日付境界、追記途中の行、ファイル置換、status lineの引き継ぎ・復元、モデル・effort集計、キャッシュ別のコスト計算に加え、連携ファイルのアクセス権、シンボリックリンク先の保護、認証付き通信のリダイレクト拒否、極端なトークン数のオーバーフロー防止を検証します。壊れたログの負のトークン数は0へ正規化し、集計値が整数の上限を超える場合は`Int.max`で止めます。`--diagnose`は今日のトークン数・読み取ったファイル数・API換算推定コスト・単価未対応トークン数などの集計値を出力し、Claudeの制限取得のためにKeychainとネットワークへアクセスします。
 
 UI確認用に`open -n dist/Ratok.app --args --preview`で同じ画面を通常のウィンドウでも開けます。
 
@@ -116,9 +122,9 @@ UI確認用に`open -n dist/Ratok.app --args --preview`で同じ画面を通常�
 Sparkleの鍵は一度だけ生成します。公開鍵をRepository variableに設定し、秘密鍵をエクスポートしてSecretに設定してください。秘密鍵ファイルは安全な場所に保管し、リポジトリへ追加しないでください。
 
 ```sh
-swift package resolve
-.build/artifacts/sparkle/Sparkle/bin/generate_keys
-.build/artifacts/sparkle/Sparkle/bin/generate_keys -x "$HOME/ratok-sparkle-private-key"
+rtk proxy swift package resolve
+rtk proxy .build/artifacts/sparkle/Sparkle/bin/generate_keys
+rtk proxy .build/artifacts/sparkle/Sparkle/bin/generate_keys -x "$HOME/ratok-sparkle-private-key"
 ```
 
 Secretsとvariableを登録後、`v0.1.0`のような新しいタグをpushするとReleaseが公開されます。以降のリリースも同じ署名鍵を使い、`vMAJOR.MINOR.PATCH`を増やしてください。`workflow_dispatch`からもタグを指定して実行できます。Pull Requestでは公開ジョブは実行されません。
