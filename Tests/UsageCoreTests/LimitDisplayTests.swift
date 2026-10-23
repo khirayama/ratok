@@ -83,7 +83,7 @@ func codexResetCreditsClassifyOtherMessages(_ line: String, _ expected: ResetCre
         let rows = expiries.enumerated().map { ResetCredit(id: "\($0.offset)", expiresAt: Date(timeIntervalSince1970: $0.element)) }
         return ResetCreditSnapshot(availableCount: rows.count, credits: rows, observedAt: now)
     }
-    #expect(credits([10 * 86_400, 20 * 86_400]).nextFetch(after: now) == Date(timeIntervalSince1970: 86_400))
+    #expect(credits([10.0 * 86_400, 20.0 * 86_400]).nextFetch(after: now) == Date(timeIntervalSince1970: 86_400))
     #expect(credits([3_000, 20 * 86_400]).nextFetch(after: now) == Date(timeIntervalSince1970: 3_000))
     #expect(credits([]).nextFetch(after: now) == Date(timeIntervalSince1970: 3_600))
     #expect(ResetCreditSnapshot(availableCount: 1, credits: [], observedAt: now).nextFetch(after: now) == Date(timeIntervalSince1970: 86_400))
