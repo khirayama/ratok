@@ -46,16 +46,42 @@ public enum ClaudeAccount {
         return try? Data(contentsOf: UsagePaths.claude.appendingPathComponent(".credentials.json"))
     }
 
+    static func sessionConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.urlCredentialStorage = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return configuration
+    }
+
     /// Returns nil when signed out, offline, the token has expired, or the answer is unexpected;
     /// the last known value stays valid. The token is sent only to Anthropic and never stored.
     public static func readLimits(timeout: TimeInterval = 20, now: Date = Date()) async -> LimitSnapshot? {
-        guard let token = credentials().flatMap({ accessToken(fromCredentials: $0, now: now) }),
-              let url = URL(string: "https://api.anthropic.com/api/oauth/usage") else { return nil }
+        guard let token = credentials().flatMap({ accessToken(fromCredentials: $0, now: now) }) else { return nil }
+        return await readLimits(token: token, timeout: timeout, now: now)
+    }
+
+    // A dedicated ephemeral session keeps account responses out of the shared disk cache and
+    // prevents an authenticated request from being redirected to another URL.
+    static func readLimits(token: String, timeout: TimeInterval = 20, now: Date = Date(),
+                           configuration: URLSessionConfiguration = sessionConfiguration()) async -> LimitSnapshot? {
+        let url = URL(string: "https://api.anthropic.com/api/oauth/usage")!
         var request = URLRequest(url: url, timeoutInterval: timeout)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
-        guard let (data, response) = try? await URLSession.shared.data(for: request),
+        let session = URLSession(configuration: configuration, delegate: AccountSessionDelegate(), delegateQueue: nil)
+        defer { session.invalidateAndCancel() }
+        guard let (data, response) = try? await session.data(for: request),
               (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
         return limits(fromResponse: data, now: now)
+    }
+}
+
+final class AccountSessionDelegate: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping @Sendable (URLRequest?) -> Void) {
+        completionHandler(nil)
     }
 }

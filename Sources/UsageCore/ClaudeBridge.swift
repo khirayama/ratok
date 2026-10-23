@@ -18,11 +18,9 @@ public enum ClaudeBridge {
         }
         // Status lines rendered before a session's first response carry no rate_limits; keep the last known values.
         guard captured else { return }
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
-                                                attributes: [.posixPermissions: 0o700])
+        try PrivateFile.prepareDirectory(directory)
         let snapshot = LimitSnapshot(windows: windows, observedAt: now)
-        try JSONEncoder().encode(snapshot).write(to: target, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
+        try PrivateFile.write(JSONEncoder().encode(snapshot), to: target)
     }
 }
 
@@ -46,20 +44,17 @@ public struct BridgeInstaller: Sendable {
     }
 
     public func install(executable: URL) throws {
-        let manager = FileManager.default
         var settings = try readSettings()
         let previous = settings["statusLine"] as? [String: Any]
         if previous?["command"] as? String == command { return }
-        try manager.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try PrivateFile.prepareDirectory(directory)
         let helper = directory.appendingPathComponent("RatokCLI")
         if executable.standardizedFileURL != helper.standardizedFileURL {
             let executableData = try Data(contentsOf: executable)
-            try executableData.write(to: helper, options: .atomic)
-            try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: helper.path)
+            try PrivateFile.write(executableData, to: helper, permissions: 0o700)
         }
         let saved: [String: Any] = ["statusLine": settings["statusLine"] ?? NSNull()]
-        try JSONSerialization.data(withJSONObject: saved, options: [.prettyPrinted, .sortedKeys]).write(to: backup, options: .atomic)
-        try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backup.path)
+        try PrivateFile.write(JSONSerialization.data(withJSONObject: saved, options: [.prettyPrinted, .sortedKeys]), to: backup)
         let originalCommand = previous?["command"] as? String
         let output = originalCommand.map { "/bin/sh -c \(Self.quote($0)) < \"$ratok_input\"" } ?? "printf 'Claude Code · Ratok\\n'"
         let script = """
@@ -72,8 +67,7 @@ public struct BridgeInstaller: Sendable {
         \(Self.quote(helper.path)) --capture-claude --support-directory \(Self.quote(directory.path)) < "$ratok_input" 2>/dev/null
         \(output)
         """
-        try Data(script.utf8).write(to: wrapper, options: .atomic)
-        try manager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapper.path)
+        try PrivateFile.write(Data(script.utf8), to: wrapper, permissions: 0o700)
         var status = previous ?? [:]
         status["type"] = "command"; status["command"] = command
         settings["statusLine"] = status
@@ -102,9 +96,8 @@ public struct BridgeInstaller: Sendable {
     }
     private func writeSettings(_ settings: [String: Any]) throws {
         try FileManager.default.createDirectory(at: settingsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let mode = (try? FileManager.default.attributesOfItem(atPath: settingsURL.path)[.posixPermissions]) ?? 0o600
-        try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys]).write(to: settingsURL, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: mode], ofItemAtPath: settingsURL.path)
+        // Settings may contain secrets. Never retain group/world access from older files.
+        try PrivateFile.write(JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys]), to: settingsURL)
     }
     static func quote(_ value: String) -> String { "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'" }
 }
