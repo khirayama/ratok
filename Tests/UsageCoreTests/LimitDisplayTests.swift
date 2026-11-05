@@ -42,6 +42,48 @@ func invalidLimitPercentageIsUnavailable(_ used: Double) {
     #expect(window.remainingPercent(at: Date()) == nil)
 }
 
+@Test func openCodeGoUsageParsesAllWindows() throws {
+    let now = Date()
+    let body = #"{"usage":{"rolling":{"status":"ok","percent":28,"resetsAt":"2026-11-04T07:38:32.000Z"},"weekly":{"status":"ok","percent":11,"resetsAt":"2026-11-09T00:00:00.000Z"},"monthly":{"status":"ok","percent":5,"resetsAt":"2026-12-04T02:31:29.000Z"}}}"#
+    let limits = try #require(OpenCodeGoAccount.limits(fromResponse: Data(body.utf8), now: now))
+    #expect(limits.windows.map(\.id) == ["primary", "secondary", "monthly"])
+    #expect(limits.windows.map(\.title) == ["5時間", "週間", "月間"])
+    #expect(limits.windows.map(\.usedPercent) == [28, 11, 5])
+    #expect(limits.windows[0].resetsAt == ParsedLog.date("2026-11-04T07:38:32Z"))
+    #expect(limits.windows[1].resetsAt == ParsedLog.date("2026-11-09T00:00:00Z"))
+    #expect(limits.windows[2].resetsAt == ParsedLog.date("2026-12-04T02:31:29Z"))
+    #expect(limits.observedAt == now)
+}
+
+@Test func openCodeGoUsageNeedsAtLeastOneValidWindow() {
+    #expect(OpenCodeGoAccount.limits(fromResponse: Data(#"{"usage":{}}"#.utf8), now: Date()) == nil)
+    #expect(OpenCodeGoAccount.limits(fromResponse: Data(#"{"usage":{"rolling":null}}"#.utf8), now: Date()) == nil)
+    #expect(OpenCodeGoAccount.limits(fromResponse: Data("not json".utf8), now: Date()) == nil)
+}
+
+@Test func openCodeGoCredentialsAreReadFromWrappers() throws {
+    #expect(OpenCodeGoCredentials.key(fromEnvironment: ["OPENCODE_API_KEY": "  oc_sk_test  "]) == "oc_sk_test")
+    #expect(OpenCodeGoCredentials.key(fromEnvironment: [
+        "ANTHROPIC_AUTH_TOKEN": "oc_sk_claude",
+        "ANTHROPIC_BASE_URL": "https://opencode.ai/inference/go/anthropic",
+    ]) == "oc_sk_claude")
+    #expect(OpenCodeGoCredentials.key(fromEnvironment: [
+        "ANTHROPIC_AUTH_TOKEN": "claude-token",
+        "ANTHROPIC_BASE_URL": "https://api.anthropic.com",
+    ]) == nil)
+
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("ratok-tests-\(UUID())")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let auth = directory.appendingPathComponent("auth.json")
+    try Data(#"{"opencode-go":{"key":"oc_sk_auth"}}"#.utf8).write(to: auth)
+    #expect(OpenCodeGoCredentials.key(fromOpenCodeAuth: auth) == "oc_sk_auth")
+
+    let settings = directory.appendingPathComponent("settings.json")
+    try Data(#"{"env":{"ANTHROPIC_AUTH_TOKEN":"oc_sk_settings","ANTHROPIC_BASE_URL":"https://opencode.ai/inference/go/anthropic"}}"#.utf8).write(to: settings)
+    #expect(OpenCodeGoCredentials.key(fromClaudeSettings: settings) == "oc_sk_settings")
+}
+
 private func snapshot(_ read: ResetCreditRead?) throws -> ResetCreditSnapshot {
     guard case .available(let snapshot) = try #require(read) else { throw CocoaError(.coderInvalidValue) }
     return snapshot

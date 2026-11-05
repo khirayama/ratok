@@ -56,7 +56,7 @@ public struct BridgeInstaller: Sendable {
         let saved: [String: Any] = ["statusLine": settings["statusLine"] ?? NSNull()]
         try PrivateFile.write(JSONSerialization.data(withJSONObject: saved, options: [.prettyPrinted, .sortedKeys]), to: backup)
         let originalCommand = previous?["command"] as? String
-        let output = originalCommand.map { "/bin/sh -c \(Self.quote($0)) < \"$ratok_input\"" } ?? "printf 'Claude Code · Ratok\\n'"
+        let output = originalCommand.map { "/bin/sh -c \(Self.quote($0)) < \"$ratok_input\"" } ?? "printf 'Claude · Ratok\\n'"
         let script = """
         #!/bin/sh
         # Ratok captures only rate-limit fields, then preserves the original status line.

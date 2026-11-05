@@ -1,9 +1,9 @@
 import Foundation
 import Testing
 
-// Official current text-model inventories, checked on 2026-10-02.
+// Official current text-model inventories, checked on 2026-11-04.
 @Test(arguments: [
-    "gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna",
+    "gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna",
     "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-cyber",
     "gpt-5.5", "gpt-5.5-pro", "gpt-5.4", "gpt-5.4-pro", "gpt-5.4-mini",
     "gpt-5.2", "gpt-5.2-pro", "gpt-5", "gpt-5-pro", "gpt-5-mini", "gpt-5-nano",
@@ -12,7 +12,8 @@ import Testing
     "claude-fable-5-1", "claude-mythos-5-1", "claude-fable-5", "claude-mythos-5",
     "claude-opus-5-5", "claude-opus-5", "claude-opus-4-8", "claude-opus-4-7",
     "claude-opus-4-6", "claude-opus-4-5-20251101", "claude-sonnet-5-5",
-    "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-4-5-20251001",
+    "claude-sonnet-5", "claude-sonnet-4-6", "claude-haiku-5-5",
+    "claude-haiku-4-5-20251001",
     // Deprecated but still available models in the Claude status table.
     "claude-sonnet-4-5-20250929", "claude-mythos-preview"
 ])
@@ -26,7 +27,7 @@ func currentPublicTextModelsHaveKnownPrices(model: String) throws {
 @Test(arguments: [("claude-fable-5-1", 92.75), ("claude-mythos-5-1", 92.75),
                   ("claude-fable-5", 93.50), ("claude-mythos-5", 93.50),
                   ("claude-mythos-preview", 233.75), ("claude-opus-4-7", 46.75),
-                  ("claude-sonnet-4-6", 28.05)])
+                  ("claude-sonnet-4-6", 28.05), ("claude-haiku-5-5", 0.935)])
 func additionalClaudeModelsPriceBothCacheDurations(model: String, expectedUSD: Double) throws {
     let tokens = TokenUsage(input: 4_000_000, output: 1_000_000, cacheRead: 1_000_000,
                             cacheWrite: 2_000_000, cacheWrite1h: 1_000_000)
@@ -79,7 +80,8 @@ func officialClaudeCloudIDsUseTheSameAPIEquivalent(model: String, canonical: Str
 }
 
 @Test(arguments: [("gpt-6-astra", 73.50), ("gpt-6-sol", 14.70),
-                  ("gpt-6.1-sol", 14.60), ("gpt-6-luna", 0.735)])
+                  ("gpt-6.1-sol", 14.60), ("gpt-6.1-terra", 7.30),
+                  ("gpt-6-luna", 0.735)])
 func gpt6ModelsUseDistinctRatesIncludingSolCacheDiscount(model: String, expectedUSD: Double) throws {
     let tokens = TokenUsage(input: 3_000_000, output: 1_000_000, cacheRead: 1_000_000, cacheWrite: 1_000_000)
     let estimate = APIPricing.estimate(model: model, tokens: tokens)
@@ -155,7 +157,7 @@ func gpt56ModelsUseTheirOwnRatesIncludingCaches(model: String, expectedUSD: Doub
     }
 }
 
-@Test(arguments: [nil, "gpt-reserve", "codex-auto-review", "gpt-6.1-sol-pro", "gpt-6-astra-new", "gpt-5.6-pro", "gpt-5.6-luna-new", "claude-opus-5-5-new", "anthropic.claude-opus-5-5-new-v1:0", "gpt-live-1", "gpt-image-2.5-sunburst"] as [String?])
+@Test(arguments: [nil, "codex-auto-review", "gpt-6.1-sol-pro", "gpt-6-astra-new", "gpt-5.6-pro", "gpt-5.6-luna-new", "claude-opus-5-5-new", "anthropic.claude-opus-5-5-new-v1:0", "gpt-live-1", "gpt-image-2.5-sunburst"] as [String?])
 func unlistedModelsAreUnavailableInsteadOfFree(model: String?) {
     let estimate = APIPricing.estimate(model: model, tokens: TokenUsage(input: 1_000, output: 100))
     #expect(estimate.amountUSD == nil)
@@ -163,9 +165,19 @@ func unlistedModelsAreUnavailableInsteadOfFree(model: String?) {
     #expect(estimate.displayText == "単価未対応")
 }
 
+@Test func reservePoolUsageIsZeroWithoutBecomingUnpriced() {
+    let tokens = TokenUsage(input: 1_000_000, output: 1_000_000, cacheRead: 500_000, cacheWrite: 500_000)
+    let estimate = APIPricing.estimate(model: "gpt-reserve", tokens: tokens)
+    #expect(estimate.amountUSD == 0)
+    #expect(estimate.pricedTokens == tokens.total)
+    #expect(!estimate.isPartial)
+    #expect(estimate.displayText == "$0.00")
+}
+
 @Test(arguments: [("claude-opus-5-5-20260922", 4.0), ("gpt-6.1-sol-2026-09-29", 2.0),
                   ("gpt-6-sol-2026-09-22", 2.0), ("gpt-6-astra-2026-09-03", 10.0),
                   ("gpt-6-luna-2026-09-22", 0.10), ("gpt-5.5-pro-2026-04-23", 30.0),
+                  ("gpt-6.1-terra-2026-10-29", 1.0),
                   ("gpt-5.6-2026-07-09", 4.0), ("gpt-5.6-sol-2026-07-09", 4.0),
                   ("gpt-5.6-terra-2026-07-09", 2.0), ("gpt-5.6-luna-2026-07-09", 0.20),
                   ("gpt-5.6-cyber-2026-07-09", 12.50)])
@@ -214,4 +226,27 @@ func datedModelIDsUseTheirModelRate(model: String, expected: Double) {
     #expect(decoded.cacheWrite1h == 0)
     let tokens = TokenUsage(input: 160, output: 20, cacheRead: 100, cacheWrite: 50, cacheWrite1h: 25)
     #expect(try JSONDecoder().decode(TokenUsage.self, from: JSONEncoder().encode(tokens)) == tokens)
+}
+
+@Test func openCodeGoModelsUseTheirEndpointCatalog() throws {
+    // 2M input tokens include 1M cached reads; 1M uncached input and 1M output remain.
+    let tokens = TokenUsage(input: 2_000_000, output: 1_000_000, cacheRead: 1_000_000)
+    let estimate = APIPricing.estimate(model: "deepseek-v4.1-flash", tokens: tokens, endpoint: .openCodeGo)
+    #expect(abs(try #require(estimate.amountUSD) - 0.753) < 0.000001)
+    #expect(estimate.pricedTokens == 3_000_000)
+    #expect(!estimate.isPartial)
+    // The same model is not priced when the request went to a different endpoint.
+    #expect(APIPricing.estimate(model: "deepseek-v4.1-flash", tokens: tokens, endpoint: .claude).amountUSD == nil)
+}
+
+@Test func openCodeGoSnapshotPricesByItsEndpoint() throws {
+    let tokens = TokenUsage(input: 2_000_000, output: 1_000_000, cacheRead: 1_000_000)
+    var snapshot = UsageSnapshot()
+    snapshot.endpoint = .openCodeGo
+    snapshot.tokens = tokens
+    snapshot.usageByGroup = [UsageGroup(model: "deepseek-v4.1-flash", tool: .claudeCode): tokens]
+    #expect(abs(try #require(snapshot.estimatedCost.amountUSD) - 0.753) < 0.000001)
+    let tool = try #require(snapshot.breakdown(by: .tool).first)
+    #expect(tool.id == UsageGroup(tool: .claudeCode))
+    #expect(abs(try #require(tool.cost.amountUSD) - 0.753) < 0.000001)
 }

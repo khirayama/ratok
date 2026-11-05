@@ -5,23 +5,62 @@ struct UsageEvent: Sendable {
     var date: Date
     var tokens: TokenUsage
     var group: UsageGroup = .init()
+    var endpoint: Provider
 }
 
 struct ParsedLog: Sendable {
     var events: [String: UsageEvent] = [:]
     var previousCodex: TokenUsage?
-    var codexGroup = UsageGroup()
+    var codexProvider: String?
+    var codexGroup = UsageGroup(tool: .codex)
     var limits: LimitSnapshot?
     var sessionID: String
     var malformedLines = 0
 
     init(sessionID: String) { self.sessionID = sessionID }
 
+    private static let claudeMarker = Data("\"usage\"".utf8)
+    private static let codexMarker = Data("\"token_count\"".utf8)
+    private static let sessionMetaMarker = Data("\"session_meta\"".utf8)
+    private static let turnContextMarker = Data("\"turn_context\"".utf8)
+
+    /// Checked before copying a line out of the read buffer: Codex rollouts hold gigabytes of
+    /// conversation content, and only a few lines in each file carry usage.
+    static func isRelevant(_ line: Data, provider: Provider) -> Bool {
+        switch provider {
+        case .claude:
+            return line.range(of: claudeMarker) != nil
+        case .codex:
+            return line.range(of: codexMarker) != nil || line.range(of: sessionMetaMarker) != nil
+                || line.range(of: turnContextMarker) != nil
+        case .openCodeGo:
+            return false
+        }
+    }
+
+    /// The same check straight on the raw bytes, so a line is only copied when it carries usage.
+    static func isRelevant(_ base: UnsafeRawPointer, _ count: Int, provider: Provider) -> Bool {
+        switch provider {
+        case .claude:
+            return contains(base, count, "\"usage\"")
+        case .codex:
+            return contains(base, count, "\"token_count\"") || contains(base, count, "\"session_meta\"")
+                || contains(base, count, "\"turn_context\"")
+        case .openCodeGo:
+            return false
+        }
+    }
+
+    private static func contains(_ base: UnsafeRawPointer, _ count: Int, _ needle: StaticString) -> Bool {
+        let found = needle.withUTF8Buffer { memmem(base, count, $0.baseAddress, $0.count) != nil }
+        return found
+    }
+
     mutating func consume(_ line: Data, provider: Provider) {
         // Skip conversation content before deserializing large JSON messages.
-        let marker = provider == .codex ? Data("\"token_count\"".utf8) : Data("\"usage\"".utf8)
-        let context = provider == .codex && (line.range(of: Data("\"session_meta\"".utf8)) != nil
-            || line.range(of: Data("\"turn_context\"".utf8)) != nil)
+        let marker = provider == .codex ? Self.codexMarker : Self.claudeMarker
+        let context = provider == .codex && (line.range(of: Self.sessionMetaMarker) != nil
+            || line.range(of: Self.turnContextMarker) != nil)
         guard context || line.range(of: marker) != nil else { return }
         guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else {
             malformedLines += 1; return
@@ -29,16 +68,21 @@ struct ParsedLog: Sendable {
         if provider == .codex, let payload = object["payload"] as? [String: Any] {
             if object["type"] as? String == "session_meta" {
                 if let id = payload["id"] as? String { sessionID = id }
+                codexProvider = payload["model_provider"] as? String
                 return
             }
             if object["type"] as? String == "turn_context" {
                 // Each turn replaces the settings, including missing/unspecified effort.
-                codexGroup = UsageGroup(model: Self.metadata(payload, "model"), effort: Self.metadata(payload, "effort"))
+                codexGroup = UsageGroup(model: Self.metadata(payload, "model"),
+                                        effort: Self.metadata(payload, "effort"), tool: .codex)
                 return
             }
         }
         guard let timestamp = object["timestamp"] as? String, let date = Self.date(timestamp) else { return }
         switch provider {
+        case .openCodeGo:
+            // OpenCode Go usage comes from its account API, not from these log files.
+            return
         case .claude:
             guard object["type"] as? String == "assistant",
                   let message = object["message"] as? [String: Any],
@@ -52,16 +96,22 @@ struct ParsedLog: Sendable {
             guard let id = message["id"] as? String ?? object["uuid"] as? String else { return }
             // Streaming records repeat a message ID; retain the latest usage, don't add it twice.
             let key = "\(id):\(object["requestId"] as? String ?? "")"
+            let endpoint: Provider = (message["id"] as? String).map(Self.isOpenCodeGoMessage) == true
+                ? .openCodeGo : .claude
             let group = UsageGroup(model: Self.metadata(message, "model"),
-                                   effort: Self.metadata(object, "perTurnEffort") ?? Self.metadata(object, "effort"))
+                                   effort: Self.metadata(object, "perTurnEffort") ?? Self.metadata(object, "effort"),
+                                   tool: .claudeCode)
             if let old = events[key] {
                 events[key] = UsageEvent(id: key, date: min(old.date, date), tokens: TokenUsage(
                     input: max(old.tokens.input, tokens.input), output: max(old.tokens.output, tokens.output),
                     cacheRead: max(old.tokens.cacheRead, tokens.cacheRead), cacheWrite: max(old.tokens.cacheWrite, tokens.cacheWrite),
                     cacheWrite1h: max(old.tokens.cacheWrite1h, tokens.cacheWrite1h)),
-                    group: UsageGroup(model: group.model ?? old.group.model, effort: group.effort ?? old.group.effort))
+                    group: UsageGroup(model: group.model ?? old.group.model,
+                                      effort: group.effort ?? old.group.effort,
+                                      tool: group.tool ?? old.group.tool),
+                    endpoint: endpoint)
             } else {
-                events[key] = UsageEvent(id: key, date: date, tokens: tokens, group: group)
+                events[key] = UsageEvent(id: key, date: date, tokens: tokens, group: group, endpoint: endpoint)
             }
         case .codex:
             guard object["type"] as? String == "event_msg", let payload = object["payload"] as? [String: Any],
@@ -83,13 +133,22 @@ struct ParsedLog: Sendable {
             previousCodex = next
             guard delta.total > 0 else { return }
             let key = "\(sessionID):\(timestamp):\(next.input):\(next.output)"
-            events[key] = UsageEvent(id: key, date: date, tokens: delta, group: codexGroup)
+            let endpoint: Provider = codexProvider == "opencode-go" ? .openCodeGo : .codex
+            events[key] = UsageEvent(id: key, date: date, tokens: delta, group: codexGroup, endpoint: endpoint)
         }
     }
 
     static func codexTokens(_ value: [String: Any]) -> TokenUsage {
         TokenUsage(input: integer(value, "input_tokens"), output: integer(value, "output_tokens"),
                    cacheRead: integer(value, "cached_input_tokens"), cacheWrite: integer(value, "cache_write_input_tokens"))
+    }
+
+    /// Anthropic returns message IDs such as `msg_...`. OpenCode Go's
+    /// Anthropic-compatible endpoint currently returns a 64-character hex ID.
+    /// Keep ordinary/unknown IDs with the Claude endpoint so existing logs
+    /// and synthetic records are not misclassified.
+    static func isOpenCodeGoMessage(_ id: String) -> Bool {
+        !id.hasPrefix("msg_") && id.count >= 48 && id.allSatisfy(\.isHexDigit)
     }
 
     /// Codex rollouts traditionally contain one `rate_limits` bucket. Newer

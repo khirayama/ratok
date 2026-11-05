@@ -31,10 +31,61 @@ private func context(model: String?, effort: String?) throws -> Data {
     return try line(["type": "turn_context", "payload": payload])
 }
 
+private func sessionMeta(provider: String, id: String = "session") throws -> Data {
+    try line(["type": "session_meta", "payload": ["id": id, "model_provider": provider]])
+}
+
 private func temporaryDirectory() throws -> URL {
     let url = FileManager.default.temporaryDirectory.appendingPathComponent("ratok-tests-\(UUID())")
     try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
     return url
+}
+
+private actor ProgressRecorder {
+    private(set) var snapshots: [[Provider: UsageSnapshot]] = []
+    func record(_ snapshot: [Provider: UsageSnapshot]) { snapshots.append(snapshot) }
+}
+
+@Test func scannerReportsFiguresWhileTheWalkIsStillRunning() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let count = 80
+    for index in 0..<count {
+        try (try claude("message-\(index)") + Data([10])).write(to: directory.appendingPathComponent("\(index).jsonl"))
+    }
+    let recorder = ProgressRecorder()
+    let final = await UsageScanner().scanByEndpoint(
+        provider: .claude, root: directory,
+        start: try #require(ParsedLog.date("2026-10-02T00:00:00Z")),
+        now: try #require(ParsedLog.date("2026-10-03T00:00:00Z")),
+        progress: { snapshot in await recorder.record(snapshot) })
+    let partials = await recorder.snapshots
+    // The first batch covers at most 8 workers × 8 files, so it reports less than everything.
+    let first = try #require(partials.first?[.claude]?.tokens.input)
+    #expect(first > 0)
+    #expect(first < final[.claude]?.tokens.input ?? 0)
+    #expect(final[.claude]?.tokens.input == count * 160)
+}
+
+@Test func keepingLimitsKeepsRestrictionsAndDropsFigures() throws {
+    let limits = LimitSnapshot(windows: [LimitWindow(id: "five_hour", title: "5時間", usedPercent: 40, resetsAt: nil)],
+                               observedAt: Date(timeIntervalSince1970: 1_000))
+    var snapshot = UsageSnapshot()
+    snapshot.endpoint = .claude
+    snapshot.tokens = TokenUsage(input: 100, output: 20)
+    snapshot.usageByGroup = [UsageGroup(tool: .claudeCode): snapshot.tokens]
+    snapshot.limits = limits
+    snapshot.lastActivity = Date(timeIntervalSince1970: 2_000)
+    snapshot.files = 3
+    snapshot.issues = ["issue"]
+    let kept = snapshot.keepingLimits()
+    #expect(kept.tokens == TokenUsage())
+    #expect(kept.usageByGroup.isEmpty)
+    #expect(kept.files == 0)
+    #expect(kept.lastActivity == nil)
+    #expect(kept.endpoint == .claude)
+    #expect(kept.limits == limits)
+    #expect(kept.issues == ["issue"])
 }
 
 @Test func codexCumulativeCountsDoNotDoubleCountRepeatedEvents() throws {
@@ -85,7 +136,7 @@ private func temporaryDirectory() throws -> URL {
     try handle.close()
     let completed = await scanner.scan(provider: .codex, root: directory, start: start, now: now)
     #expect(completed.tokens == TokenUsage(input: 80, output: 20, cacheRead: 40))
-    #expect(completed.usageByGroup == [UsageGroup(): completed.tokens])
+    #expect(completed.usageByGroup == [UsageGroup(tool: .codex): completed.tokens])
     let unchanged = await scanner.scan(provider: .codex, root: directory, start: start, now: now)
     #expect(unchanged.tokens == completed.tokens)
     #expect(unchanged.usageByGroup == completed.usageByGroup)
@@ -107,7 +158,7 @@ private func temporaryDirectory() throws -> URL {
     try (try claude("new", input: 50) + Data([10])).write(to: first, options: .atomic)
     let replaced = await scanner.scan(provider: .claude, root: directory, start: start, now: now)
     #expect(replaced.tokens.input == 200)
-    #expect(replaced.usageByGroup == [UsageGroup(): replaced.tokens])
+    #expect(replaced.usageByGroup == [UsageGroup(tool: .claudeCode): replaced.tokens])
 }
 
 @Test func codexAttributesDeltasToEachTurnWithoutCarryingMissingSettings() throws {
@@ -122,8 +173,8 @@ private func temporaryDirectory() throws -> URL {
     parsed.consume(try context(model: "model-b", effort: nil), provider: .codex)
     parsed.consume(try codex(250, output: 50, at: "2026-10-02T03:04:00Z"), provider: .codex)
     let events = parsed.events.values.sorted { $0.date < $1.date }
-    #expect(events.map(\.group) == [UsageGroup(), UsageGroup(model: "model-a", effort: "high"),
-                                    UsageGroup(model: "model-b", effort: "low"), UsageGroup(model: "model-b")])
+    #expect(events.map(\.group) == [UsageGroup(tool: .codex), UsageGroup(model: "model-a", effort: "high", tool: .codex),
+                                    UsageGroup(model: "model-b", effort: "low", tool: .codex), UsageGroup(model: "model-b", tool: .codex)])
     #expect(events.map(\.tokens.input) == [100, 60, 40, 50])
     #expect(events.map(\.tokens.output) == [10, 20, 10, 10])
 }
@@ -134,10 +185,10 @@ private func temporaryDirectory() throws -> URL {
     parsed.consume(try claude("message", output: 30), provider: .claude)
     let event = try #require(parsed.events.values.first)
     #expect(parsed.events.count == 1)
-    #expect(event.group == UsageGroup(model: "model-a", effort: "high"))
+    #expect(event.group == UsageGroup(model: "model-a", effort: "high", tool: .claudeCode))
     #expect(event.tokens.output == 30)
     parsed.consume(try claude("fallback", model: "model-b", effort: "medium"), provider: .claude)
-    #expect(parsed.events["fallback:request-fallback"]?.group == UsageGroup(model: "model-b", effort: "medium"))
+    #expect(parsed.events["fallback:request-fallback"]?.group == UsageGroup(model: "model-b", effort: "medium", tool: .claudeCode))
 }
 
 @Test func groupedTotalsSharePeriodAndDeduplicationAndSumToOverallUsage() async throws {
@@ -159,8 +210,8 @@ private func temporaryDirectory() throws -> URL {
         start: try #require(ParsedLog.date("2026-10-02T00:00:00Z")),
         now: try #require(ParsedLog.date("2026-10-03T00:00:00Z")))
     #expect(snapshot.usageByGroup.count == 4)
-    #expect(snapshot.usageByGroup[UsageGroup(model: "model-a", effort: "high")]?.output == 30)
-    #expect(snapshot.usageByGroup[UsageGroup()] == TokenUsage(input: 160, output: 20, cacheRead: 100, cacheWrite: 50))
+    #expect(snapshot.usageByGroup[UsageGroup(model: "model-a", effort: "high", tool: .claudeCode)]?.output == 30)
+    #expect(snapshot.usageByGroup[UsageGroup(tool: .claudeCode)] == TokenUsage(input: 160, output: 20, cacheRead: 100, cacheWrite: 50))
     #expect(snapshot.breakdown(by: .model).map(\.id) == [UsageGroup(model: "model-a"), UsageGroup(model: "model-b"), UsageGroup()])
     #expect(snapshot.breakdown(by: .effort).first?.id == UsageGroup(effort: "high"))
     for grouping in UsageGrouping.allCases {
@@ -185,9 +236,9 @@ private func temporaryDirectory() throws -> URL {
     try handle.write(contentsOf: try codex(160, output: 30) + Data([10]))
     try handle.close()
     let updated = await scanner.scan(provider: .codex, root: directory, start: today, now: now)
-    #expect(updated.usageByGroup == [UsageGroup(model: "model-a", effort: "high"): TokenUsage(input: 60, output: 20, cacheRead: 30)])
+    #expect(updated.usageByGroup == [UsageGroup(model: "model-a", effort: "high", tool: .codex): TokenUsage(input: 60, output: 20, cacheRead: 30)])
     let week = await scanner.scan(provider: .codex, root: directory, start: today.addingTimeInterval(-86_400), now: now)
-    #expect(week.usageByGroup == [UsageGroup(model: "model-a", effort: "high"): week.tokens])
+    #expect(week.usageByGroup == [UsageGroup(model: "model-a", effort: "high", tool: .codex): week.tokens])
     #expect(week.tokens.input == 160)
 }
 
@@ -300,3 +351,65 @@ private func temporaryDirectory() throws -> URL {
     #expect(UsagePeriod.week.start(now: now, calendar: calendar) == ParsedLog.date("2026-03-03T05:00:00Z"))
     #expect(UsagePeriod.thisMonth.start(now: now, calendar: calendar) == ParsedLog.date("2026-03-01T05:00:00Z"))
 }
+
+@Test func claudeMessageIDsSplitAnthropicAndOpenCodeGoEndpoints() throws {
+    var parsed = ParsedLog(sessionID: "session")
+    parsed.consume(try claude("msg_anthropic", model: "claude-opus-5-5"), provider: .claude)
+    parsed.consume(try claude(String(repeating: "a", count: 64), model: "deepseek-v4.1-flash"), provider: .claude)
+    let events = parsed.events.values
+    #expect(Set(events.map(\.endpoint)) == [.claude, .openCodeGo])
+    #expect(events.allSatisfy { $0.group.tool == .claudeCode })
+}
+
+@Test func codexModelProviderSplitsOpenCodeGoFromOpenAI() throws {
+    var go = ParsedLog(sessionID: "session")
+    go.consume(try sessionMeta(provider: "opencode-go"), provider: .codex)
+    go.consume(try context(model: "deepseek-v4.1-flash", effort: "high"), provider: .codex)
+    go.consume(try codex(100, output: 10), provider: .codex)
+    #expect(go.events.values.map(\.endpoint) == [.openCodeGo])
+    #expect(go.events.values.map(\.group.tool) == [.codex])
+
+    var openai = ParsedLog(sessionID: "session")
+    openai.consume(try sessionMeta(provider: "openai"), provider: .codex)
+    openai.consume(try codex(100, output: 10), provider: .codex)
+    #expect(openai.events.values.map(\.endpoint) == [.codex])
+}
+
+@Test func scannerSplitsOneClaudeLogIntoEndpointSnapshots() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let data = try claude("msg_anthropic", model: "claude-opus-5-5")
+        + Data([10])
+        + claude(String(repeating: "b", count: 64), model: "deepseek-v4.1-flash")
+        + Data([10])
+    try data.write(to: directory.appendingPathComponent("session.jsonl"))
+    let snapshots = await UsageScanner().scanByEndpoint(
+        provider: .claude, root: directory,
+        start: try #require(ParsedLog.date("2026-10-02T00:00:00Z")),
+        now: try #require(ParsedLog.date("2026-10-03T00:00:00Z")))
+    #expect(snapshots[.claude]?.tokens == TokenUsage(input: 160, output: 20, cacheRead: 100, cacheWrite: 50))
+    #expect(snapshots[.openCodeGo]?.tokens == TokenUsage(input: 160, output: 20, cacheRead: 100, cacheWrite: 50))
+    #expect(snapshots[.claude]?.endpoint == .claude)
+    #expect(snapshots[.openCodeGo]?.endpoint == .openCodeGo)
+}
+
+@Test func scannerSplitsCodexLogByModelProvider() async throws {
+    let directory = try temporaryDirectory()
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let data = try sessionMeta(provider: "opencode-go")
+        + Data([10])
+        + context(model: "deepseek-v4.1-flash", effort: "high")
+        + Data([10])
+        + codex(100, output: 10)
+        + Data([10])
+    try data.write(to: directory.appendingPathComponent("session.jsonl"))
+    let snapshots = await UsageScanner().scanByEndpoint(
+        provider: .codex, root: directory,
+        start: try #require(ParsedLog.date("2026-10-02T00:00:00Z")),
+        now: try #require(ParsedLog.date("2026-10-03T00:00:00Z")))
+    #expect(snapshots[.openCodeGo]?.tokens.total == 110)
+    #expect(snapshots[.codex]?.tokens.total == 0)
+    #expect(snapshots[.openCodeGo]?.usageByGroup.keys.first?.model == "deepseek-v4.1-flash")
+    #expect(snapshots[.openCodeGo]?.usageByGroup.keys.first?.tool == .codex)
+}
+

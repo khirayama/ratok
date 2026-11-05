@@ -1,9 +1,33 @@
 import Foundation
 
 public enum Provider: String, CaseIterable, Sendable, Identifiable {
-    case claude, codex
+    case codex, claude, openCodeGo = "opencode-go"
     public var id: String { rawValue }
-    public var name: String { self == .claude ? "Claude Code" : "Codex" }
+    public var name: String {
+        switch self {
+        case .codex: "ChatGPT"
+        case .claude: "Claude"
+        case .openCodeGo: "OpenCode Go"
+        }
+    }
+    public var endpointName: String {
+        switch self {
+        case .codex: "OpenAI API"
+        case .claude: "Anthropic API"
+        case .openCodeGo: "OpenCode Go API"
+        }
+    }
+}
+
+public enum Tool: String, CaseIterable, Sendable, Identifiable {
+    case claudeCode = "claude-code", codex
+    public var id: String { rawValue }
+    public var name: String {
+        switch self {
+        case .claudeCode: "Claude Code"
+        case .codex: "Codex"
+        }
+    }
 }
 
 public enum UsagePeriod: String, CaseIterable, Sendable, Identifiable {
@@ -111,18 +135,25 @@ public struct LimitSnapshot: Codable, Sendable, Equatable {
 }
 
 public enum UsageGrouping: String, CaseIterable, Sendable, Identifiable {
-    case model, effort, modelAndEffort
+    case model, effort, modelAndEffort, tool, toolAndModel
     public var id: String { rawValue }
     public var title: String {
-        switch self { case .model: "モデル別"; case .effort: "effort別"; case .modelAndEffort: "モデル×effort" }
+        switch self {
+        case .model: "モデル別"
+        case .effort: "effort別"
+        case .modelAndEffort: "モデル×effort"
+        case .tool: "ツール別"
+        case .toolAndModel: "ツール×モデル"
+        }
     }
 }
 
 public struct UsageGroup: Hashable, Sendable {
     public var model: String?
     public var effort: String?
-    public init(model: String? = nil, effort: String? = nil) {
-        self.model = model; self.effort = effort
+    public var tool: Tool?
+    public init(model: String? = nil, effort: String? = nil, tool: Tool? = nil) {
+        self.model = model; self.effort = effort; self.tool = tool
     }
 }
 
@@ -133,6 +164,7 @@ public struct UsageBreakdown: Sendable, Identifiable {
 }
 
 public struct UsageSnapshot: Sendable {
+    public var endpoint: Provider?
     public var tokens: TokenUsage = .init()
     public var usageByGroup: [UsageGroup: TokenUsage] = [:]
     public var limits: LimitSnapshot?
@@ -141,8 +173,20 @@ public struct UsageSnapshot: Sendable {
     public var issues: [String] = []
     public init() {}
 
+    /// The same snapshot without its token figures. Limits are independent of the selected period,
+    /// so they can keep showing while a newly selected period is counted.
+    public func keepingLimits() -> UsageSnapshot {
+        var result = UsageSnapshot()
+        result.endpoint = endpoint
+        result.limits = limits
+        result.issues = issues
+        return result
+    }
+
     public var estimatedCost: CostEstimate {
-        usageByGroup.reduce(CostEstimate()) { $0 + APIPricing.estimate(model: $1.key.model, tokens: $1.value) }
+        usageByGroup.reduce(CostEstimate()) {
+            $0 + APIPricing.estimate(model: $1.key.model, tokens: $1.value, endpoint: endpoint)
+        }
     }
 
     public func breakdown(by grouping: UsageGrouping) -> [UsageBreakdown] {
@@ -152,17 +196,42 @@ public struct UsageSnapshot: Sendable {
             let key = switch grouping {
             case .model: UsageGroup(model: group.model)
             case .effort: UsageGroup(effort: group.effort)
-            case .modelAndEffort: group
+            case .modelAndEffort: UsageGroup(model: group.model, effort: group.effort)
+            case .tool: UsageGroup(tool: group.tool)
+            case .toolAndModel: UsageGroup(model: group.model, tool: group.tool)
             }
             totals[key, default: TokenUsage()] = totals[key, default: TokenUsage()] + tokens
-            // Price by the original model before combining different models into an effort row.
-            costs[key, default: CostEstimate()] = costs[key, default: CostEstimate()] + APIPricing.estimate(model: group.model, tokens: tokens)
+            // Price by the original model before combining models or tools into one row.
+            costs[key, default: CostEstimate()] = costs[key, default: CostEstimate()]
+                + APIPricing.estimate(model: group.model, tokens: tokens, endpoint: endpoint)
         }
         return totals.map { UsageBreakdown(id: $0.key, tokens: $0.value, cost: costs[$0.key, default: CostEstimate()]) }.sorted {
             if $0.tokens.total != $1.tokens.total { return $0.tokens.total > $1.tokens.total }
+            if $0.id.tool != $1.id.tool { return ($0.id.tool?.rawValue ?? "") < ($1.id.tool?.rawValue ?? "") }
             if $0.id.model != $1.id.model { return ($0.id.model ?? "") < ($1.id.model ?? "") }
             return ($0.id.effort ?? "") < ($1.id.effort ?? "")
         }
+    }
+
+    /// Combines snapshots of the same endpoint, such as OpenCode Go usage found in
+    /// both Claude Code and Codex logs.
+    public func merging(_ other: UsageSnapshot) -> UsageSnapshot {
+        var result = self
+        result.endpoint = endpoint ?? other.endpoint
+        result.tokens = tokens + other.tokens
+        for (group, tokens) in other.usageByGroup {
+            result.usageByGroup[group, default: TokenUsage()] = result.usageByGroup[group, default: TokenUsage()] + tokens
+        }
+        if let otherLimits = other.limits {
+            result.limits = result.limits?.merging(otherLimits) ?? otherLimits
+        }
+        let times = [lastActivity, other.lastActivity].compactMap { $0 }
+        result.lastActivity = times.max()
+        result.files = TokenUsage.sum(files, other.files)
+        for issue in other.issues where !result.issues.contains(issue) {
+            result.issues.append(issue)
+        }
+        return result
     }
 }
 

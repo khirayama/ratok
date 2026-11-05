@@ -26,15 +26,23 @@ public struct CostEstimate: Sendable, Equatable {
 }
 
 public enum APIPricing {
-    public static let verifiedOn = "2026-10-02"
-    public static let assumptions = "USD・API標準単価での換算額です。サブスクの請求額ではありません。短いコンテキストの通常料金を使用し、Fast/長文/地域指定の割増、Batch割引、ツール料金、税は含みません。クラウド経由のClaudeもAnthropic標準単価で換算します。Claudeのキャッシュ書込は1時間分をログから区別し、保持時間が未記録の分は5分単価で計算します。画像生成・音声など専用の利用内訳が必要なモデルは対象外です。単価は\(verifiedOn)確認、アプリ更新時に更新します。"
+    public static let verifiedOn = "2026-11-04"
+    public static let goVerifiedOn = "2026-11-04"
+    public static let assumptions = "USD・API標準単価での換算額です。サブスクの請求額ではありません。短いコンテキストの通常料金を使用し、Fast/長文/地域指定の割増、Batch割引、ツール料金、税は含みません。クラウド経由のClaudeもAnthropic標準単価で換算します。Claudeのキャッシュ書込は1時間分をログから区別し、保持時間が未記録の分は5分単価で計算します。OpenCode Goは基本単価を使用し、時間帯による倍率と長文時の上書き単価は含みません。画像生成・音声など専用の利用内訳が必要なモデルは対象外です。単価は各エンドポイントの確認日時点で、アプリ更新時に更新します。"
+    public static func verifiedOn(for provider: Provider) -> String {
+        provider == .openCodeGo ? goVerifiedOn : verifiedOn
+    }
     public static func source(for provider: Provider) -> String {
-        provider == .codex ? "https://developers.openai.com/api/docs/pricing" : "https://platform.claude.com/docs/en/about-claude/pricing"
+        switch provider {
+        case .codex: "https://developers.openai.com/api/docs/pricing"
+        case .claude: "https://platform.claude.com/docs/en/about-claude/pricing"
+        case .openCodeGo: "https://opencode.ai/v2/docs/console/go/"
+        }
     }
 
-    public static func estimate(model: String?, tokens: TokenUsage) -> CostEstimate {
+    public static func estimate(model: String?, tokens: TokenUsage, endpoint: Provider? = nil) -> CostEstimate {
         guard tokens.total > 0 else { return CostEstimate() }
-        guard let model, let rates = rates(for: model) else {
+        guard let model, let rates = rates(for: model, endpoint: endpoint) else {
             return CostEstimate(usd: 0, priced: 0, unpriced: tokens.total)
         }
         let oneHour = min(tokens.cacheWrite, tokens.cacheWrite1h)
@@ -60,9 +68,12 @@ public enum APIPricing {
         }
     }
     // USD per million tokens, verified against the linked official rate cards.
-    // Do not infer prices for reserve pools, unknown models, or unlisted variants.
+    // Do not infer prices for unknown models or unlisted variants.
     private static let catalog: [String: Rates] = [
         "gpt-6.1-sol": Rates(input: 2, output: 10, read: 0.10, write: 2.50),
+        "gpt-6.1-terra": Rates(input: 1, output: 5, read: 0.05, write: 1.25),
+        // Reserve-pool usage draws from the included plan, so count it at $0.
+        "gpt-reserve": Rates(input: 0, output: 0, read: 0, write: 0),
         "gpt-6-sol": Rates(input: 2, output: 10, read: 0.20, write: 2.50),
         "gpt-6-luna": Rates(input: 0.10, output: 0.50, read: 0.01, write: 0.125),
         "gpt-6-astra": Rates(input: 10, output: 50, read: 1, write: 12.50),
@@ -141,6 +152,8 @@ public enum APIPricing {
         "claude-mythos-preview": Rates(input: 25, output: 125, read: 2.50, write: 31.25, write1h: 50),
         "claude-opus-5-5": Rates(input: 4, output: 20, read: 0.20, write: 5, write1h: 8),
         "claude-sonnet-5-5": Rates(input: 2, output: 10, read: 0.20, write: 2.50, write1h: 4),
+        // Short-context rates (prompts up to 100,000 tokens).
+        "claude-haiku-5-5": Rates(input: 0.10, output: 0.50, read: 0.01, write: 0.125, write1h: 0.20),
         "claude-haiku-4-5": Rates(input: 1, output: 5, read: 0.10, write: 1.25, write1h: 2),
         "claude-opus-5": Rates(input: 5, output: 25, read: 0.50, write: 6.25, write1h: 10),
         "claude-sonnet-5": Rates(input: 2, output: 10, read: 0.20, write: 2.50, write1h: 4),
@@ -156,6 +169,40 @@ public enum APIPricing {
         "claude-3-5-haiku": Rates(input: 0.80, output: 4, read: 0.08, write: 1, write1h: 1.60)
     ]
 
+    // OpenCode Go's own model catalog. These rates apply only to the OpenCode Go
+    // endpoint; the same model ID can have a different direct-API price.
+    // Base rates only: time-of-day multipliers and long-context overrides are excluded.
+    private static let goCatalog: [String: Rates] = [
+        "deepseek-v4.1-flash": Rates(input: 0.15, output: 0.60, read: 0.003),
+        "deepseek-v4-pro": Rates(input: 0.66, output: 1.98, read: 0.022),
+        "glm-5.2": Rates(input: 1.40, output: 4.40, read: 0.26),
+        "glm-5.3": Rates(input: 1.40, output: 4.40, read: 0.26),
+        "glm-5.3-flash": Rates(input: 0.15, output: 0.50, read: 0.03),
+        "grok-4.7": Rates(input: 2, output: 6, read: 0.50),
+        "muse-spark-1.2-contributor": Rates(input: 0.10, output: 0.20, read: 0.002),
+        "muse-spark-1.3-contributor": Rates(input: 0.10, output: 0.20, read: 0.002),
+        "gpt-5.6-luna": Rates(input: 0.20, output: 1.20, read: 0.02, write: 0.25),
+        "gpt-6-luna": Rates(input: 0.10, output: 0.50, read: 0.01, write: 0.125),
+        "claude-haiku-5-5": Rates(input: 0.10, output: 0.50, read: 0.01, write: 0.125, write1h: 0.20),
+        "hy3": Rates(input: 0.14, output: 0.58, read: 0.035),
+        "hy4-preview": Rates(input: 0.834, output: 2.501, read: 0.042),
+        "kimi-k2.7-code": Rates(input: 0.95, output: 4, read: 0.19),
+        "kimi-k3": Rates(input: 3, output: 15, read: 0.30, write: 3),
+        "kimi-k3.1-pro": Rates(input: 2, output: 10, read: 0.20, write: 2),
+        "mimo-v2.6-flash": Rates(input: 0.14, output: 0.28, read: 0.0028),
+        "mimo-v2.6-pro": Rates(input: 0.435, output: 0.87, read: 0.003625),
+        "minimax-m3": Rates(input: 0.30, output: 1.20, read: 0.06),
+        "minimax-m3.1-flash": Rates(input: 0.15, output: 0.60, read: 0.015),
+        "longcat-2.0": Rates(input: 0.30, output: 1.20, read: 0.006),
+        "step-5-preview": Rates(input: 1, output: 2.70, read: 0.10),
+        "beam-free": Rates(input: 0, output: 0, read: 0),
+        "iceman-contributor-free": Rates(input: 0, output: 0, read: 0),
+        "qwen3.8-max": Rates(input: 2, output: 6, read: 0.25, write: 2.50),
+        "qwen3.8-flash": Rates(input: 0.15, output: 0.47, read: 0.016, write: 0.20),
+        "qwen3.7-plus": Rates(input: 0.40, output: 1.60, read: 0.04, write: 0.50),
+        "gemini-4-argon": Rates(input: 2, output: 10, read: 0.10)
+    ]
+
     // Alias targets are verified with the official model pages on `verifiedOn`.
     private static let aliases = [
         "gpt-5.6": "gpt-5.6-sol",
@@ -166,7 +213,8 @@ public enum APIPricing {
         "gpt-4-1106-vision-preview": "gpt-4-turbo-preview"
     ]
 
-    private static func rates(for model: String) -> Rates? {
+    private static func rates(for model: String, endpoint: Provider?) -> Rates? {
+        if endpoint == .openCodeGo { return goCatalog[model] }
         if let rates = catalog[model] { return rates }
         var normalized = model
         // Official Bedrock and Vertex IDs use the same model, with provider decorations.
