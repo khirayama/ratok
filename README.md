@@ -1,6 +1,6 @@
 # Ratok
 
-Claude CodeとCodexの使用状況をメニューバーから確認するmacOSアプリです。SwiftUI製で、自動更新にはSparkle 2を使用しています。macOS 14以降、ビルドにはSwift 6.2以降が必要です。
+ChatGPT・Claude・OpenCode Goの使用状況をメニューバーから確認するmacOSアプリです。SwiftUI製で、自動更新にはSparkle 2を使用しています。macOS 14以降、ビルドにはSwift 6.2以降が必要です。
 
 ![Ratokの使用状況ダッシュボード](docs/screenshots/dashboard.png)
 
@@ -8,22 +8,26 @@ Claude CodeとCodexの使用状況をメニューバーから確認するmacOS�
 
 ## 特長
 
-- メニューバーにCodex・CCそれぞれのアイコンと残量を表示（5時間枠を優先、未提供なら週間枠）。クリックでスクロール不要の詳細を開く
+- メニューバーにChatGPT・Claude・OpenCode Goそれぞれのアイコンと残量を表示（5時間枠を優先、未提供なら週間枠）。クリックでスクロール不要の詳細を開く
+- プロバイダーごとに表示・非表示を切り替え。不要なプロバイダーをダッシュボードとメニューバーから隠せる
+- メニューバーのChatGPT・Claude・Goの名称もプロバイダーごとに表示・非表示を切り替えできる
+- OpenCode Goはトークン・コスト・モデル内訳と、5時間・週間・月間のアカウント全体の使用率を表示。Claude Code / Codex経由の利用も含む
 - 歯車メニューから、メニューバーに推定コストとトークン量（キャッシュを除く入力＋出力。オプションでキャッシュ込み）も表示可能。期間は今日／7日間／30日間／今月から選択
 - 入力・出力トークン数、キャッシュ読込・書込を今日／7日間／30日間／今月で集計
-- モデル別・effort別・モデル×effortのトークン内訳を切り替え。行にカーソルを合わせるとキャッシュの内訳も表示
+- トークンはエンドポイント単位（Anthropic API / OpenAI API / OpenCode Go）で集計。Claude CodeやCodex経由でも、実際にリクエストした先へ振り分け
+- モデル別・effort別・モデル×effort・ツール別・ツール×モデルのトークン内訳を切り替え。行にカーソルを合わせるとキャッシュの内訳も表示
 - トークン利用量をAPI標準単価へ換算した推定コスト（USD）を全体と内訳に表示
 - サブスクリプション制限の使用率、リセット時刻、取得データの古さを表示
-- Codexのリセット権（banked reset）の残り回数と最短の期限を表示。期限まで3日を切ると色で知らせる。Claudeは確認ページへのリンクを表示
+- ChatGPT（Codex CLI）のリセット権（banked reset）の残り回数と最短の期限を表示。期限まで3日を切ると色で知らせる。Claudeは確認ページへのリンクを表示
 - 30秒ごとにローカルログの変更分を読み込む
-- Codexを起動していなくても、5分ごとに制限を取得してリセットを反映
+- Codex CLIを起動していなくても、5分ごとに制限を取得してリセットを反映
 - Claude Codeの既存status lineを保持する接続・解除
 
 ## ライセンス
 
 Ratokのソースコードは[Apache License 2.0](LICENSE)で公開しています。個人・企業で利用、改変、再配布できます。特許ライセンスを含む条件はライセンス本文を参照してください。
 
-CodexとClaudeのマークは各社の商標です。画像の出典とライセンスは[アイコンの帰属情報](Sources/Ratok/Resources/ATTRIBUTION.md)を参照してください。
+OpenAI、Anthropic、OpenCodeのマークは各社の商標です。画像の出典とライセンスは[アイコンの帰属情報](Sources/Ratok/Resources/ATTRIBUTION.md)を参照してください。
 
 ## 起動
 
@@ -34,7 +38,7 @@ rtk proxy open dist/Ratok.app
 
 `dist/Ratok.app`をApplicationsへ移動して使えます。ローカルビルドと現在のGitHub Releasesのビルドはアドホック署名です。Developer ID署名と公証は未対応です。Xcodeで`Package.swift`を開くこともできます。
 
-## Claude Codeの制限表示
+## Claudeの制限表示
 
 ポップオーバーの「Claude Codeと接続」を一度クリックします。Claude Codeの次の応答後に制限が表示されます。Claude Code v2.1.251以降で公式に提供される`rate_limits`フィールドを利用します。claude.ai Pro／Maxなど、フィールドを提供する環境が対象です。各枠は個別に未提供になる場合があります。
 
@@ -44,15 +48,25 @@ rtk proxy open dist/Ratok.app
 
 公式仕様: [Claude Code status line](https://code.claude.com/docs/en/statusline)
 
+## OpenCode Goの利用状況
+
+歯車メニューの「OpenCode Go APIキーを設定…」で、`claude-go` / `codex-go` などで使っている`oc_sk_…`キーを登録します。キーはKeychainに保存し、`https://opencode.ai/inference/go/v1/usage`への読み取りにのみ使用します。環境変数`OPENCODE_API_KEY`、`ANTHROPIC_BASE_URL`がOpenCode Goを指す場合の`ANTHROPIC_AUTH_TOKEN`、`~/.claude/settings.json`の`env`、`~/.local/share/opencode/auth.json`の`opencode-go`も自動検出します。シェルの起動ファイルは読みません。Finderから起動したRatokにはシェル関数内の環境変数が引き継がれないため、`claude-go` / `codex-go`のキーは初回にKeychainへ登録してください。
+
+OpenCode GoのAPIは、5時間（`rolling`）・週間（`weekly`）・月間（`monthly`）の使用率とリセット時刻を返します。Claude CodeやCodex経由のリクエストも同じアカウントの利用として反映されます。ドキュメントに記載されていないAPIのため、将来変更される可能性があります。認証が拒否された場合は「APIキーが無効です」と表示し、通信に失敗した場合は直前の値を保持します。
+
+使用率APIはトークン数を返さないため、OpenCode Goのトークン・コストはローカルログからエンドポイント別に集計します。Claude Codeは`message.id`が`msg_`で始まるものをAnthropic、現在の64桁hex IDをOpenCode Goとして判定します。Codexは`session_meta.payload.model_provider`が`opencode-go`かどうかで判定します。
+
 ## データと集計
 
 | 対象 | データ元 | 集計方法 |
 | --- | --- | --- |
-| Claude Code | `~/.claude/projects/**/*.jsonl`（サブエージェントを含む） | assistantのusageをメッセージ・リクエストIDで重複排除。キャッシュ読込・作成を入力に含める |
-| Codex | `~/.codex/sessions/**/*.jsonl` | token_countの累積値の差分を集計。同じ累積値の繰り返しは加算しない |
+| Claude（Anthropic API） | `~/.claude/projects/**/*.jsonl`（サブエージェントを含む） | assistantのusageをメッセージ・リクエストIDで重複排除。`msg_`で始まるメッセージIDのみをAnthropicとして集計 |
+| ChatGPT（OpenAI API） | `~/.codex/sessions/**/*.jsonl` | token_countの累積値の差分を集計。`model_provider`がOpenCode Go以外の利用を集計 |
 | Claudeの制限 | status lineからの`rate_limits` | 接続以降に取得した5時間・週間・追加利用の枠 |
-| Codexの制限 | token_countの`rate_limits`／`additional_rate_limits`、`codex app-server`の`account/rateLimits/read` | Codex全体の枠と追加枠を個別表示。Luna Reserveなどの別枠は通常枠へ混ぜず、ログに記録がない間もapp serverから5分ごとに取得して常時表示 |
-| Codexのリセット権 | `codex app-server`の`account/rateLimits/read` | 未使用のリセット権の回数と期限。制限と同じ応答から5分ごと、および手動更新時に取得 |
+| ChatGPTの制限（Codex CLI） | token_countの`rate_limits`／`additional_rate_limits`、`codex app-server`の`account/rateLimits/read` | Codex全体の枠と追加枠を個別表示。Luna Reserveなどの別枠は通常枠へ混ぜず、ログに記録がない間もapp serverから5分ごとに取得して常時表示 |
+| ChatGPTのリセット権（Codex CLI） | `codex app-server`の`account/rateLimits/read` | 未使用のリセット権の回数と期限。制限と同じ応答から5分ごと、および手動更新時に取得 |
+| OpenCode Goのトークン | 上記Claude Code / Codexのログ | `msg_`以外のClaude Codeメッセージと、`model_provider=opencode-go`のCodex利用を統合。ツール別・ツール×モデルで内訳を表示 |
+| OpenCode Goの制限 | `https://opencode.ai/inference/go/v1/usage` | 5時間・週間・月間の使用率とリセット時刻。APIキーはKeychainまたは環境・設定ファイルから取得 |
 
 Codexのデータ構造: [OpenAI Codex protocol](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs)
 
@@ -62,21 +76,21 @@ Codexのリセット権と、利用中でない枠（Luna Reserveなど）の制
 
 推定コストは`（非キャッシュ入力×入力単価＋出力×出力単価＋キャッシュ読込×読込単価＋キャッシュ書込×書込単価）÷1,000,000`で計算します。キャッシュを通常入力と二重計上せず、Claudeの1時間書込は`usage.cache_creation.ephemeral_1h_input_tokens`で区別します。保持時間が未記録の書込は5分単価で換算します。effort別は各モデルで計算してから合算し、effortによる独自の倍率は掛けません。
 
-2026-10-02確認の[OpenAI API料金](https://developers.openai.com/api/docs/pricing)・[Claude API料金](https://platform.claude.com/docs/en/about-claude/pricing)をアプリ内に保持し、アプリ更新時に更新します。対応モデルは以下の通りです。いずれも日時付きIDに対応します。
+2026-11-04確認の[OpenAI API料金](https://developers.openai.com/api/docs/pricing)・[Claude API料金](https://platform.claude.com/docs/en/about-claude/pricing)と、2026-11-04確認のOpenCode Goモデル単価（`https://opencode.ai/inference/go/v1/models`）をアプリ内に保持し、アプリ更新時に更新します。対応モデルは以下の通りです。いずれも日時付きIDに対応します。
 
-- GPT-6.1 Sol、GPT-6 Sol／Luna／Astra、GPT-5.6 Sol／Terra／Luna／Cyber。
+- GPT-6.1 Sol／Terra、GPT-6 Sol／Luna／Astra、GPT-5.6 Sol／Terra／Luna／Cyber。
 - GPT-5.5、GPT-5.4、GPT-5.2、GPT-5.1、GPT-5と、公式単価のあるPro／mini／nano／Codex／chat-latest版。GPT-5.3はCodex／chat-latest版、GPT-5.1 Codexはmax／mini版も対応。
 - `codex-mini-latest`、`chat-latest`。
 - GPT-4.1／mini／nano、GPT-4o／mini、o1／Pro／mini／Preview、o3／Pro／mini、o4-mini。過去ログ用にGPT-4.5 Preview、GPT-4／Turbo／Turbo Preview、GPT-3.5 Turbo／instruct、ChatGPT-4o、davinci-002、babbage-002も対応。
 - o3／o4-mini Deep Research、computer-use-preview、GPT-4o／mini Search Preview、GPT-5 Search API、GPT-Rosalind Research。Rosalindは公開されたAPI標準単価で換算し、公式の課金開始日は2026-10-05です。
 - text-embedding-3-small／large、text-embedding-ada-002、omni-moderation-latest。公式に無料のモデルは$0.00と表示。
-- Claude Fable 5／5.1、Mythos 5／5.1／Preview、Opus 5.5／5／4.8／4.7／4.6／4.5／4.1／4、Sonnet 5.5／5／4.6／4.5／4、Haiku 4.5／3.5。
+- Claude Fable 5／5.1、Mythos 5／5.1／Preview、Opus 5.5／5／4.8／4.7／4.6／4.5／4.1／4、Sonnet 5.5／5／4.6／4.5／4、Haiku 5.5／4.5／3.5。
 
 `gpt-5.6`はSol、[Daybreak Blue](https://developers.openai.com/api/docs/models/gpt-daybreak-blue-latest)はGPT-5.6 Sol、[Daybreak Red](https://developers.openai.com/api/docs/models/gpt-daybreak-red-latest)はGPT-5.6 Cyberの公式別名として換算します。別名の対象も上記の確認日時点で固定しています。独立したキャッシュ単価がないモデルは通常入力単価で換算します。
 
 Claudeは[公式のモデルID形式](https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions)に基づき、Bedrockの`anthropic.claude-…`（`-v1`／`-v1:0`付きも含む）とVertexの`@YYYYMMDD`付きIDもAnthropic API標準単価へ換算します。[Claudeモデルの状態一覧](https://platform.claude.com/docs/en/about-claude/model-deprecations)のActive全モデルと、まだ利用可能なDeprecatedモデルを含めています。Mythos Previewの基本単価は[Project Glasswingの公式発表](https://www.anthropic.com/glasswing)、キャッシュは[公式の倍率](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)によります。
 
-対象はログの入力・出力・キャッシュから換算できるテキストトークン料金です。画像生成・音声・動画のモデルは専用の利用内訳が必要なため対象外です。Open-weightモデルやファインチューニング済みモデル、公開単価を特定できない`gpt-reserve`／`codex-auto-review`、未対応モデル・モデル不明は計算から除外し、全て未対応なら「単価未対応」、一部が未対応なら金額に`*`と未対応トークン数を表示します。利用ゼロは$0.00、1セント未満の利用は<$0.01です。
+対象はログの入力・出力・キャッシュから換算できるテキストトークン料金です。画像生成・音声・動画のモデルは専用の利用内訳が必要なため対象外です。Open-weightモデルやファインチューニング済みモデル、公開単価を特定できない`codex-auto-review`、未対応モデル・モデル不明は計算から除外し、全て未対応なら「単価未対応」、一部が未対応なら金額に`*`と未対応トークン数を表示します。プラン込みのリザーブ枠`gpt-reserve`は$0.00で換算します。利用ゼロは$0.00、1セント未満の利用は<$0.01です。
 
 金額は短いコンテキストのAPI標準単価によるUSDの目安です。実際のサブスクリプション請求額ではありません。Fast／長文／地域指定の割増、Batch割引、ツール料金、税は含みません。クラウド事業者独自の請求単価は使いません。過去の利用にも保持している単価を適用し、当時の請求額は再現しません。
 
@@ -86,7 +100,7 @@ Claudeは[公式のモデルID形式](https://platform.claude.com/docs/en/about-
 
 `CLAUDE_CONFIG_DIR`／`CODEX_HOME`／`RATOK_SUPPORT_DIR`がアプリの環境に存在する場合はカスタムパスを利用します。Finderから起動したアプリにはシェルの環境変数が引き継がれない場合があります。
 
-トークン利用量の集計はローカルで完結します。制限情報はCodex CLIのapp serverと、Claude Codeの認証情報を利用したAnthropicの使用状況エンドポイントからも取得します。Claudeの認証トークンはKeychain（未取得時はClaudeの認証ファイル）から読み取り、HTTPSで固定のAnthropicエンドポイントだけに送信します。HTTPリダイレクトは拒否し、レスポンス・Cookie・認証情報を共有キャッシュへ保存しません。Ratokはトークンを書き出しません。
+トークン利用量の集計はローカルで完結します。制限情報はCodex CLIのapp server、Claude Codeの認証情報を利用したAnthropicの使用状況エンドポイント、OpenCode GoのAPIキーを利用したOpenCodeの使用状況エンドポイントからも取得します。Claudeの認証トークンはKeychain（未取得時はClaudeの認証ファイル）から、OpenCode GoのAPIキーはRatokが保存したKeychainまたは環境・設定ファイルから読み取り、HTTPSで固定のエンドポイントだけに送信します。HTTPリダイレクトは拒否し、レスポンス・Cookie・認証情報を共有キャッシュへ保存しません。Ratokは認証情報を平文ファイルへ書き出しません。OpenCode GoのAPIキーは、ユーザーが登録した場合のみKeychainへ保存します。
 
 自動更新を有効にしたビルドでは、Sparkleが更新フィードと更新ファイルをHTTPSで取得します。会話内容は集計時にローカルで読み込み、メモリに保持するのはトークン数・日時・重複排除ID・モデル・effort・制限情報だけです。連携用ディレクトリと実行ファイルは権限`0700`、制限情報・status lineのバックアップ・更新したClaude設定は`0600`で保存します。大きな期間の初回集計は時間がかかりますが、UIは操作できます。
 
@@ -101,7 +115,7 @@ rtk proxy .build/debug/Ratok --diagnose
 
 CIはpush／Pull Request時に同じ検査に加え、アプリのリリースビルド・署名検証・画像リソースの梱包確認を実行します。CIとReleaseはmacOS 15上のXcode 26.2を明示的に選択します。ローカルでもSwift 6.2以降を含むXcodeを選択してください。DependabotはSwiftパッケージとGitHub Actionsの更新を毎週確認します。ActionsはコミットSHAへ固定しています。
 
-テストでは累積値の重複、Claudeのストリーミング重複、日付境界、追記途中の行、ファイル置換、status lineの引き継ぎ・復元、モデル・effort集計、キャッシュ別のコスト計算に加え、連携ファイルのアクセス権、シンボリックリンク先の保護、認証付き通信のリダイレクト拒否、極端なトークン数のオーバーフロー防止を検証します。壊れたログの負のトークン数は0へ正規化し、集計値が整数の上限を超える場合は`Int.max`で止めます。`--diagnose`は今日のトークン数・読み取ったファイル数・API換算推定コスト・単価未対応トークン数などの集計値を出力し、Claudeの制限取得のためにKeychainとネットワークへアクセスします。
+テストでは累積値の重複、Claudeのストリーミング重複、日付境界、追記途中の行、ファイル置換、status lineの引き継ぎ・復元、モデル・effort集計、キャッシュ別のコスト計算、OpenCode Goの使用率レスポンスとキー検出に加え、連携ファイルのアクセス権、シンボリックリンク先の保護、認証付き通信のリダイレクト拒否、極端なトークン数のオーバーフロー防止を検証します。壊れたログの負のトークン数は0へ正規化し、集計値が整数の上限を超える場合は`Int.max`で止めます。`--diagnose`は今日のトークン数・読み取ったファイル数・API換算推定コスト・単価未対応トークン数などの集計値を出力し、ClaudeとOpenCode Goの制限取得のためにKeychainとネットワークへアクセスします。
 
 UI確認用に`open -n dist/Ratok.app --args --preview`で同じ画面を通常のウィンドウでも開けます。
 
