@@ -5,40 +5,59 @@ import UsageCore
 struct Dashboard: View {
     @Bindable var store: UsageStore
     @ObservedObject var updates: AppUpdater
-    @State private var grouping = UsageGrouping.model
+    @State private var editingOpenCodeGoKey = false
+    private var dashboardWidth: CGFloat { store.visibleProviders.count >= 3 ? 990 : 660 }
     var body: some View {
         VStack(spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Ratok").font(.system(size: 18, weight: .semibold, design: .rounded))
-                    Text(localized("Claude CodeとCodexの使用状況", "Claude Code and Codex usage", language: store.language)).font(.caption).foregroundStyle(.secondary)
+                    Text(localized("ChatGPT・Claude・OpenCode Goの使用状況", "ChatGPT, Claude, and OpenCode Go usage", language: store.language)).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Button { Task { await store.refresh(manual: true) } } label: {
                     Image(systemName: "arrow.clockwise").frame(width: 28, height: 28)
                 }.buttonStyle(.borderless).disabled(store.refreshing).help(localized("使用状況を更新", "Refresh usage", language: store.language))
             }
-            Picker(localized("集計期間", "Period", language: store.language), selection: $store.period) {
-                ForEach(UsagePeriod.allCases) { Text(periodTitle($0, language: store.language)).tag($0) }
-            }.pickerStyle(.segmented)
-                .onChange(of: store.period) { Task { await store.refresh() } }
-            Picker(localized("トークン内訳", "Token breakdown", language: store.language), selection: $grouping) {
-                ForEach(UsageGrouping.allCases) { Text(groupingTitle($0, language: store.language)).tag($0) }
-            }.pickerStyle(.segmented)
-            HStack(alignment: .top, spacing: 10) {
-                ForEach([Provider.codex, .claude]) { provider in
-                    ProviderCard(provider: provider, snapshot: store.snapshots[provider],
-                                 period: store.period, grouping: grouping, language: store.language, bridgeInstalled: store.bridgeInstalled,
-                                 resetCredits: provider == .codex ? store.codexResetCredits : nil,
-                                 connect: store.toggleBridge)
+            if !store.visibleUsageProviders.isEmpty {
+                Picker(localized("集計期間", "Period", language: store.language), selection: $store.period) {
+                    ForEach(UsagePeriod.allCases) { Text(periodTitle($0, language: store.language)).tag($0) }
+                }.pickerStyle(.segmented)
+                    .onChange(of: store.period) { Task { await store.refresh() } }
+                Picker(localized("トークン内訳", "Token breakdown", language: store.language), selection: $store.grouping) {
+                    ForEach(UsageGrouping.allCases) { Text(groupingTitle($0, language: store.language)).tag($0) }
+                }.pickerStyle(.segmented)
+            }
+            if !store.visibleProviders.isEmpty {
+                HStack(alignment: .top, spacing: 10) {
+                    ForEach(store.visibleProviders) { provider in
+                        if provider == .openCodeGo {
+                            OpenCodeGoCard(store: store, editing: $editingOpenCodeGoKey,
+                                           period: store.period, grouping: store.grouping)
+                        } else {
+                            ProviderCard(provider: provider, snapshot: store.snapshots[provider],
+                                         awaitingUsage: store.awaitingProviders.contains(provider),
+                                         liveUsage: store.countingUsage,
+                                         period: store.period, grouping: store.grouping, language: store.language, bridgeInstalled: store.bridgeInstalled,
+                                         resetCredits: provider == .codex ? store.codexResetCredits : nil,
+                                         connect: store.toggleBridge)
+                        }
+                    }
                 }
             }
+            if store.visibleProviders.isEmpty {
+                Text(localized("表示するプロバイダーを選んでください。", "Choose at least one provider to show.", language: store.language))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center).padding(.vertical, 20)
+            }
             if let error = store.error { Text(error).font(.caption).foregroundStyle(.red) }
-            Text(localized("トークンはこのMacのログから集計（入力はキャッシュ込み）。制限はアカウント全体の最終取得値です。", "Tokens are counted from logs on this Mac (input includes cache). Limits show the latest account-wide values retrieved.", language: store.language))
+            Text(localized("トークンはこのMacのログから集計（入力はキャッシュ込み）。Claude・ChatGPTの制限はアカウント全体の最終取得値、OpenCode Goはアカウント全体の使用率をAPIから取得します。", "Tokens are counted from logs on this Mac (input includes cache). Claude and ChatGPT limits show the latest account-wide values; OpenCode Go reads account-wide usage from its API.", language: store.language))
                 .font(.system(size: 10)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-            Text(localized("推定コストはAPI標準単価での換算額（USD）。サブスクの請求額とは異なります。", "Estimated cost uses standard API rates (USD); it is not your subscription bill.", language: store.language))
-                .font(.system(size: 10)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
-                .help(pricingAssumptions(language: store.language))
+            if !store.visibleUsageProviders.isEmpty {
+                Text(localized("推定コストはAPI標準単価での換算額（USD）。サブスクの請求額とは異なります。", "Estimated cost uses standard API rates (USD); it is not your subscription bill.", language: store.language))
+                    .font(.system(size: 10)).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+                    .help(pricingAssumptions(language: store.language))
+            }
             HStack {
                 if store.refreshing {
                     ProgressView().controlSize(.mini)
@@ -53,8 +72,26 @@ struct Dashboard: View {
                         ForEach(AppLanguage.allCases) { language in Text(language.title).tag(language) }
                     }
                     Divider()
-                    Toggle(localized("Codexの文字を表示", "Show Codex label", language: store.language), isOn: $store.showCodexNameInMenuBar)
-                    Toggle(localized("CCの文字を表示", "Show CC label", language: store.language), isOn: $store.showClaudeNameInMenuBar)
+                    Toggle(localized("ChatGPTを表示", "Show ChatGPT", language: store.language), isOn: $store.showChatGPT)
+                    Toggle(localized("Claudeを表示", "Show Claude", language: store.language), isOn: $store.showClaude)
+                    Toggle(localized("OpenCode Goを表示", "Show OpenCode Go", language: store.language), isOn: $store.showOpenCodeGo)
+                    Menu(localized("メニューバーの名称", "Menu bar names", language: store.language)) {
+                        Toggle("ChatGPT", isOn: $store.showChatGPTNameInMenuBar)
+                        Toggle("Claude", isOn: $store.showClaudeNameInMenuBar)
+                        Toggle("OpenCode Go", isOn: $store.showOpenCodeGoNameInMenuBar)
+                    }
+                    Button(store.openCodeGoKeyConfigured
+                           ? localized("OpenCode Go APIキーを変更…", "Change OpenCode Go API key…", language: store.language)
+                           : localized("OpenCode Go APIキーを設定…", "Set OpenCode Go API key…", language: store.language)) {
+                        store.showOpenCodeGo = true
+                        editingOpenCodeGoKey = true
+                    }
+                    if store.openCodeGoUsesSavedKey {
+                        Button(localized("OpenCode Go APIキーを削除", "Remove OpenCode Go API key", language: store.language)) {
+                            store.removeOpenCodeGoKey()
+                        }
+                    }
+                    Divider()
                     Toggle(localized("制限の割合を表示", "Show limit percentage", language: store.language), isOn: $store.showLimitsInMenuBar)
                     Toggle(localized("5h・週間の両方を表示", "Show both 5h and weekly limits", language: store.language), isOn: $store.showBothLimitWindowsInMenuBar)
                         .disabled(!store.showLimitsInMenuBar)
@@ -88,7 +125,7 @@ struct Dashboard: View {
                 } label: { Image(systemName: "gearshape") }.menuStyle(.borderlessButton).fixedSize()
             }
         }
-        .padding(14).frame(width: 660)
+        .padding(14).frame(width: dashboardWidth)
         .fixedSize(horizontal: false, vertical: true)
         .environment(\.locale, store.language.locale)
     }
@@ -97,6 +134,10 @@ struct Dashboard: View {
 private struct ProviderCard: View {
     let provider: Provider
     let snapshot: UsageSnapshot?
+    /// No figures for the selected period yet; limits may still be shown.
+    let awaitingUsage: Bool
+    /// The scan is still refining the figures shown.
+    let liveUsage: Bool
     let period: UsagePeriod
     let grouping: UsageGrouping
     let language: AppLanguage
@@ -110,34 +151,26 @@ private struct ProviderCard: View {
                 Image(nsImage: provider.markImage).renderingMode(.template)
                     .resizable().scaledToFit().foregroundStyle(accent)
                     .frame(width: 29, height: 29).background(accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
-                Text(provider.name).font(.system(size: 14, weight: .semibold))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(provider.name).font(.system(size: 14, weight: .semibold))
+                    Text(provider.endpointName).font(.system(size: 9)).foregroundStyle(.secondary)
+                }
                 Spacer()
                 if let plan = snapshot?.limits?.plan { Text(plan.capitalized).font(.caption).foregroundStyle(.secondary) }
+                if liveUsage {
+                    ProgressView().controlSize(.mini)
+                        .help(localized("集計中…", "Counting…", language: language))
+                }
                 Text(periodTitle(period, language: language)).font(.system(size: 10)).foregroundStyle(.secondary)
             }
             if let snapshot {
-                HStack(spacing: 0) {
-                    TokenMetric(title: localized("入力トークン", "Input tokens", language: language), value: snapshot.tokens.input, color: accent)
-                    Spacer()
-                    TokenMetric(title: localized("出力トークン", "Output tokens", language: language), value: snapshot.tokens.output, color: .primary)
-                }
-                HStack {
-                    Text(localized("キャッシュ読込 \(compact(snapshot.tokens.cacheRead))", "Cache read \(compact(snapshot.tokens.cacheRead))", language: language))
-                    Spacer()
-                    Text(localized("書込 \(compact(snapshot.tokens.cacheWrite))", "write \(compact(snapshot.tokens.cacheWrite))", language: language))
-                }.font(.system(size: 10)).foregroundStyle(.secondary)
-                HStack {
-                    Text(localized("API換算 推定コスト", "Estimated API cost", language: language)).font(.system(size: 10)).foregroundStyle(.secondary)
-                    Spacer()
-                    Text(costText(snapshot.estimatedCost, language: language)).font(.system(size: 16, weight: .semibold, design: .rounded)).monospacedDigit()
-                }.help(pricingAssumptions(language: language))
-                Text("\(snapshot.estimatedCost.amountUSD == nil ? localized("未計算", "Not priced", language: language) : localized("* 一部のみ", "* Partial", language: language)) · \(compact(snapshot.estimatedCost.unpricedTokens)) \(localized("tokensは単価未対応", "tokens not priced", language: language))")
-                    .font(.system(size: 9)).foregroundStyle(.secondary)
-                    .opacity(snapshot.estimatedCost.isPartial ? 1 : 0)
-                UsageBreakdownTable(rows: snapshot.breakdown(by: grouping), grouping: grouping, language: language)
-                if let source = URL(string: APIPricing.source(for: provider)) {
-                    Link(localized("料金表 · \(APIPricing.verifiedOn)確認", "Rates · verified \(APIPricing.verifiedOn)", language: language), destination: source)
-                        .font(.system(size: 9))
+                if awaitingUsage {
+                    // Limits below stay visible; only the figures for the selected period are unknown.
+                    PendingUsageSection(period: period, language: language)
+                } else {
+                    TokenUsageSection(snapshot: snapshot, grouping: grouping, language: language, accent: accent,
+                                      pricingSource: URL(string: APIPricing.source(for: provider)),
+                                      pricingDate: APIPricing.verifiedOn(for: provider))
                 }
                 Divider()
                 HStack {
@@ -168,7 +201,7 @@ private struct ProviderCard: View {
                         }
                     }
                 } else {
-                    Text(localized("Codexのログとapp serverから取得した制限を表示します。追加枠やLuna Reserveは別枠で表示します。", "Shows limits from Codex logs and the Codex app server. Extra usage and Luna Reserve appear separately.", language: language))
+                    Text(localized("ChatGPT（Codex CLI）のログとapp serverから取得した制限を表示します。追加枠やLuna Reserveは別枠で表示します。", "Shows limits from ChatGPT (Codex CLI) logs and the Codex app server. Extra usage and Luna Reserve appear separately.", language: language))
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 if let resetCredits { ResetCreditRow(credits: resetCredits, language: language) }
@@ -182,16 +215,236 @@ private struct ProviderCard: View {
                     }
                 }
                 ForEach(snapshot.issues, id: \.self) { Text(localizedIssue($0, language: language)).font(.caption).foregroundStyle(.orange) }
-                if snapshot.files == 0, snapshot.issues.isEmpty {
+                if !awaitingUsage, !liveUsage, snapshot.files == 0, snapshot.issues.isEmpty {
                     Text(localized("この期間の利用ログはありません。", "No usage logs for this period.", language: language)).font(.caption).foregroundStyle(.secondary)
                 }
             } else {
                 HStack { ProgressView().controlSize(.small); Text(localized("ローカルログを集計中…", "Reading local logs…", language: language)).font(.caption).foregroundStyle(.secondary) }
             }
         }
-        .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.primary.opacity(0.055)))
+    }
+}
+
+private struct TokenUsageSection: View {
+    let snapshot: UsageSnapshot
+    let grouping: UsageGrouping
+    let language: AppLanguage
+    let accent: Color
+    let pricingSource: URL?
+    let pricingDate: String
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 0) {
+                TokenMetric(title: localized("入力トークン", "Input tokens", language: language), value: snapshot.tokens.input, color: accent)
+                Spacer()
+                TokenMetric(title: localized("出力トークン", "Output tokens", language: language), value: snapshot.tokens.output, color: .primary)
+            }
+            HStack {
+                Text(localized("キャッシュ読込 \(compact(snapshot.tokens.cacheRead))", "Cache read \(compact(snapshot.tokens.cacheRead))", language: language))
+                Spacer()
+                Text(localized("書込 \(compact(snapshot.tokens.cacheWrite))", "write \(compact(snapshot.tokens.cacheWrite))", language: language))
+            }.font(.system(size: 10)).foregroundStyle(.secondary)
+            HStack {
+                Text(localized("API換算 推定コスト", "Estimated API cost", language: language)).font(.system(size: 10)).foregroundStyle(.secondary)
+                Spacer()
+                Text(costText(snapshot.estimatedCost, language: language)).font(.system(size: 16, weight: .semibold, design: .rounded)).monospacedDigit()
+            }.help(pricingAssumptions(language: language))
+            Text("\(snapshot.estimatedCost.amountUSD == nil ? localized("未計算", "Not priced", language: language) : localized("* 一部のみ", "* Partial", language: language)) · \(compact(snapshot.estimatedCost.unpricedTokens)) \(localized("tokensは単価未対応", "tokens not priced", language: language))")
+                .font(.system(size: 9)).foregroundStyle(.secondary)
+                .opacity(snapshot.estimatedCost.isPartial ? 1 : 0)
+            UsageBreakdownTable(rows: snapshot.breakdown(by: grouping), grouping: grouping, language: language)
+            if let pricingSource {
+                Link(localized("料金表 · \(pricingDate)確認", "Rates · verified \(pricingDate)", language: language), destination: pricingSource)
+                    .font(.system(size: 9))
+            }
+        }
+    }
+}
+
+private struct PendingUsageSection: View {
+    let period: UsagePeriod
+    let language: AppLanguage
+    var body: some View {
+        VStack(spacing: 6) {
+            ProgressView().controlSize(.small)
+            Text(localized("\(periodTitle(period, language: language))の利用を集計中…",
+                           "Counting usage for \(periodTitle(period, language: language))…",
+                           language: language))
+                .font(.caption).foregroundStyle(.secondary)
+        }
+        // Hold the token section's height so switching periods does not resize the window.
+        .frame(maxWidth: .infinity, minHeight: 250, alignment: .center)
+    }
+}
+
+private struct OpenCodeGoCard: View {
+    @Bindable var store: UsageStore
+    @Binding var editing: Bool
+    let period: UsagePeriod
+    let grouping: UsageGrouping
+    @State private var draft = ""
+    @State private var saveError: String?
+    @FocusState private var keyFieldFocused: Bool
+    private var accent: Color { Color(red: 0.45, green: 0.42, blue: 0.68) }
+    private var snapshot: UsageSnapshot? { store.snapshots[.openCodeGo] }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 9) {
+                Image(nsImage: Provider.openCodeGo.markImage).renderingMode(.template)
+                    .resizable().scaledToFit().foregroundStyle(accent)
+                    .frame(width: 29, height: 29).background(accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(Provider.openCodeGo.name).font(.system(size: 14, weight: .semibold))
+                    Text(Provider.openCodeGo.endpointName).font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if store.countingUsage {
+                    ProgressView().controlSize(.mini)
+                        .help(localized("集計中…", "Counting…", language: store.language))
+                }
+                Text(periodTitle(period, language: store.language))
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
+            }
+            if let snapshot {
+                if store.awaitingProviders.contains(.openCodeGo) {
+                    PendingUsageSection(period: period, language: store.language)
+                } else {
+                    TokenUsageSection(snapshot: snapshot, grouping: grouping, language: store.language, accent: accent,
+                                      pricingSource: URL(string: APIPricing.source(for: .openCodeGo)),
+                                      pricingDate: APIPricing.goVerifiedOn)
+                    if !store.countingUsage, snapshot.files == 0, snapshot.tokens.total == 0, snapshot.issues.isEmpty {
+                        Text(localized("この期間のOpenCode Go経由の利用ログはありません。", "No OpenCode Go usage logs for this period.", language: store.language))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                HStack { ProgressView().controlSize(.small); Text(localized("ローカルログを集計中…", "Reading local logs…", language: store.language)).font(.caption).foregroundStyle(.secondary) }
+            }
+            Divider()
+            HStack {
+                Text(localized("サブスクリプション制限", "Subscription limits", language: store.language))
+                    .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
+                Spacer()
+                if let limits = snapshot?.limits {
+                    HStack(spacing: 3) {
+                        Text(localized("取得", "Fetched", language: store.language))
+                        Text(limits.observedAt, style: .relative)
+                    }.font(.system(size: 10)).foregroundStyle(.secondary)
+                        .help(localized("取得: \(limits.observedAt.formatted())", "Fetched: \(limits.observedAt.formatted())", language: store.language))
+                }
+            }
+            if editing {
+                editor
+            } else if !store.openCodeGoKeyConfigured {
+                Text(localized("OpenCode GoのAPIキーを設定すると、5時間・週間・月間の利用状況を表示します。", "Set an OpenCode Go API key to show 5-hour, weekly, and monthly usage.", language: store.language))
+                    .font(.caption).foregroundStyle(.secondary)
+                Button(localized("APIキーを設定…", "Set API key…", language: store.language)) { beginEditing() }
+                    .controlSize(.small)
+            } else if let snapshot = snapshot {
+                if let limits = snapshot.limits, !limits.windows.isEmpty {
+                    ForEach(limits.windows) { window in
+                        LimitRow(window: window, accent: accent, language: store.language)
+                    }
+                } else if store.openCodeGoRefreshing || snapshot.issues.isEmpty {
+                    HStack { ProgressView().controlSize(.small); Text(localized("制限を取得中…", "Loading limits…", language: store.language)).font(.caption).foregroundStyle(.secondary) }
+                }
+                ForEach(snapshot.issues, id: \.self) { issue in
+                    Text(localizedGoIssue(issue, language: store.language)).font(.caption).foregroundStyle(.orange)
+                }
+                if store.openCodeGoStatus == .unauthorized {
+                    Button(localized("APIキーを変更…", "Change API key…", language: store.language)) { beginEditing() }
+                        .controlSize(.small)
+                }
+            } else {
+                HStack { ProgressView().controlSize(.small); Text(localized("制限を取得中…", "Loading limits…", language: store.language)).font(.caption).foregroundStyle(.secondary) }
+            }
+            if !editing {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(localized("トークンはこのMacのClaude Code・Codexログから、制限はOpenCode Goのアカウント全体から取得します。", "Tokens come from Claude Code and Codex logs on this Mac; limits are account-wide OpenCode Go values.", language: store.language))
+                        .font(.system(size: 9)).foregroundStyle(.secondary)
+                    if let console = URL(string: "https://opencode.ai/console/go") {
+                        Link(localized("Consoleで確認", "Open Console", language: store.language), destination: console)
+                            .font(.system(size: 9))
+                    }
+                }
+            }
+        }
+        .padding(12).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
+        .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.primary.opacity(0.055)))
+    }
+
+    private var editor: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(localized("claude-go / codex-go の oc_sk_… キーを貼り付け（Keychainに保存）", "Paste the oc_sk_… key used by claude-go / codex-go (stored in Keychain).", language: store.language))
+                .font(.caption).foregroundStyle(.secondary)
+            Text(localized("現在: \(openCodeGoSourceTitle(store.openCodeGoKeySource, language: store.language))",
+                           "Current: \(openCodeGoSourceTitle(store.openCodeGoKeySource, language: store.language))",
+                           language: store.language))
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+            SecureField("oc_sk_…", text: $draft)
+                .textFieldStyle(.roundedBorder)
+                .focused($keyFieldFocused)
+                .onAppear { keyFieldFocused = true }
+            if let saveError {
+                Text(saveError).font(.caption).foregroundStyle(.red)
+            }
+            HStack {
+                if store.openCodeGoUsesSavedKey {
+                    Button(localized("削除", "Remove", language: store.language), role: .destructive) {
+                        store.removeOpenCodeGoKey()
+                        finishEditing()
+                    }
+                }
+                Spacer()
+                Button(localized("キャンセル", "Cancel", language: store.language)) { finishEditing() }
+                    .keyboardShortcut(.cancelAction)
+                Button(localized("保存", "Save", language: store.language)) {
+                    do {
+                        try store.saveOpenCodeGoKey(draft)
+                        finishEditing()
+                    } catch {
+                        saveError = store.language == .japanese ? error.localizedDescription : "Could not save the API key."
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+    }
+
+    private func beginEditing() {
+        editing = true
+        draft = ""
+        saveError = nil
+    }
+
+    private func finishEditing() {
+        editing = false
+        draft = ""
+        saveError = nil
+    }
+}
+
+private func openCodeGoSourceTitle(_ source: OpenCodeGoKeySource?, language: AppLanguage) -> String {
+    switch source {
+    case .keychain: localized("Keychainに保存済み", "Saved in Keychain", language: language)
+    case .environment: localized("環境変数から検出", "Detected in the environment", language: language)
+    case .claudeSettings: localized("Claude設定から検出", "Detected in Claude settings", language: language)
+    case .opencodeAuth: localized("OpenCodeの認証情報から検出", "Detected in OpenCode credentials", language: language)
+    case nil: localized("未設定", "Not set", language: language)
+    }
+}
+
+private func localizedGoIssue(_ issue: String, language: AppLanguage) -> String {
+    guard language == .english else { return issue }
+    return switch issue {
+    case "OpenCode GoのAPIキーが無効です。": "The OpenCode Go API key is invalid."
+    case "OpenCode Goの利用状況を取得できませんでした。": "OpenCode Go usage could not be retrieved."
+    default: issue
     }
 }
 
@@ -210,27 +463,37 @@ private struct UsageBreakdownTable: View {
             if rows.isEmpty {
                 Text(localized("この期間の利用はありません。", "No usage for this period.", language: language))
                     .font(.caption).foregroundStyle(.secondary)
-                    .frame(height: CGFloat(5 * 24 - 4), alignment: .topLeading)
+                    .frame(height: CGFloat(4 * 24 - 4), alignment: .topLeading)
             } else {
                 ScrollView {
                     VStack(spacing: 4) {
                         ForEach(rows) { row in
                             HStack(spacing: 6) {
-                                Text(title(row.id)).lineLimit(1).truncationMode(.middle)
+                                Text(title(row.id)).lineLimit(grouping == .toolAndModel ? 2 : 1)
+                                    .truncationMode(.middle)
+                                    .fixedSize(horizontal: false, vertical: true)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                                 Text(compact(row.tokens.input)).frame(width: 40, alignment: .trailing)
                                 Text(compact(row.tokens.output)).frame(width: 40, alignment: .trailing)
                                 Text(costText(row.cost, language: language)).frame(width: 64, alignment: .trailing)
                             }
-                            .font(.system(size: 10)).monospacedDigit().frame(height: 20)
+                            .font(.system(size: 10)).monospacedDigit()
+                            .frame(height: grouping == .toolAndModel ? 30 : 20)
                             .help(localized("\(title(row.id))\n入力: \(row.tokens.input.formatted()) · 出力: \(row.tokens.output.formatted())\nキャッシュ読込: \(row.tokens.cacheRead.formatted()) · 書込: \(row.tokens.cacheWrite.formatted())（うち1時間: \(row.tokens.cacheWrite1h.formatted())）\nAPI換算 推定コスト: \(costText(row.cost, language: language))\n単価未対応: \(row.cost.unpricedTokens.formatted()) tokens\n\(pricingAssumptions(language: language))", "\(title(row.id))\nInput: \(row.tokens.input.formatted()) · Output: \(row.tokens.output.formatted())\nCache read: \(row.tokens.cacheRead.formatted()) · write: \(row.tokens.cacheWrite.formatted()) (including one-hour: \(row.tokens.cacheWrite1h.formatted()))\nEstimated API cost: \(costText(row.cost, language: language))\nUnpriced: \(row.cost.unpricedTokens.formatted()) tokens\n\(pricingAssumptions(language: language))", language: language))
                         }
                     }
-                }.frame(height: CGFloat(5 * 24 - 4))
+                }.frame(height: CGFloat(4 * 24 - 4))
             }
             Text(localized("ログに記録がない項目は「不明」です。", "Items missing from logs are marked Unknown.", language: language))
                 .font(.system(size: 9)).foregroundStyle(.secondary)
-                .opacity(rows.contains(where: { (grouping != .effort && $0.id.model == nil) || (grouping != .model && $0.id.effort == nil) }) ? 1 : 0)
+                .opacity(rows.contains(where: { row in
+                    let needsModel = grouping == .model || grouping == .modelAndEffort || grouping == .toolAndModel
+                    let needsEffort = grouping == .effort || grouping == .modelAndEffort
+                    let needsTool = grouping == .tool || grouping == .toolAndModel
+                    return (needsModel && row.id.model == nil)
+                        || (needsEffort && row.id.effort == nil)
+                        || (needsTool && row.id.tool == nil)
+                }) ? 1 : 0)
         }
     }
 
@@ -239,6 +502,8 @@ private struct UsageBreakdownTable: View {
         case .model: group.model ?? localized("不明", "Unknown", language: language)
         case .effort: group.effort ?? localized("不明", "Unknown", language: language)
         case .modelAndEffort: "\(group.model ?? localized("不明", "Unknown", language: language)) · \(group.effort ?? localized("不明", "Unknown", language: language))"
+        case .tool: group.tool?.name ?? localized("不明", "Unknown", language: language)
+        case .toolAndModel: "\(group.tool?.name ?? localized("不明", "Unknown", language: language))\n\(group.model ?? localized("不明", "Unknown", language: language))"
         }
     }
 }
@@ -339,8 +604,8 @@ private struct ResetCreditRow: View {
             guard let expiry = credit.expiresAt else { return title }
             return localized("\(title) · 期限 \(format(expiry))", "\(title) · expires \(format(expiry))", language: language)
         }
-        let fetched = localized("取得: \(credits.observedAt.formatted())。使用はCodexの/usageから行います。",
-                                "Fetched: \(credits.observedAt.formatted()). Redeem from /usage in Codex.", language: language)
+        let fetched = localized("取得: \(credits.observedAt.formatted())。使用はChatGPT（Codex CLI）の/usageから行います。",
+                                "Fetched: \(credits.observedAt.formatted()). Redeem from /usage in the Codex CLI.", language: language)
         return (rows + [fetched]).joined(separator: "\n")
     }
 }
@@ -350,6 +615,8 @@ private func groupingTitle(_ grouping: UsageGrouping, language: AppLanguage) -> 
     case .model: localized("モデル別", "By model", language: language)
     case .effort: localized("effort別", "By effort", language: language)
     case .modelAndEffort: localized("モデル×effort", "Model × effort", language: language)
+    case .tool: localized("ツール別", "By tool", language: language)
+    case .toolAndModel: localized("ツール×モデル", "Tool × model", language: language)
     }
 }
 

@@ -9,40 +9,57 @@ extension Provider {
            let bundle = Bundle(url: url) { return bundle }
         return .module
     }
-    var assetName: String { self == .claude ? "claude-mark" : "codex-mark" }
+    var assetName: String {
+        switch self {
+        case .claude: "claude-mark"
+        case .codex: "codex-mark"
+        case .openCodeGo: "opencode-mark"
+        }
+    }
     var markImage: NSImage {
         guard let url = Self.resourceBundle.url(forResource: assetName, withExtension: "png"),
               let image = NSImage(contentsOf: url) else { return NSImage(size: .zero) }
         image.isTemplate = true
         return image
     }
-    var menuBarName: String { self == .claude ? "CC" : "Codex" }
+    var menuBarName: String {
+        switch self {
+        case .claude: "Claude"
+        case .codex: "ChatGPT"
+        case .openCodeGo: "Go"
+        }
+    }
 }
 
 struct MenuBarLabel: View {
     let store: UsageStore
-    private let providers: [Provider] = [.codex, .claude]
+    private var providers: [Provider] { store.menuBarProviders }
 
     var body: some View {
-        let separator = store.language == .japanese ? "、" : ", "
-        let help = providers.map { store.menuHelp(for: $0) }.joined(separator: separator)
+        let help = providers.isEmpty
+            ? "Ratok"
+            : providers.map { store.menuHelp(for: $0) }.joined(separator: store.language == .japanese ? "、" : ", ")
         Image(nsImage: image)
             .accessibilityLabel(help)
             .help(help)
     }
 
     private var image: NSImage {
-        let content = HStack(spacing: 12) {
-            ForEach(providers) { provider in
-                HStack(spacing: 4) {
-                    Image(nsImage: provider.markImage).renderingMode(.template)
-                        .resizable().scaledToFit().frame(width: 16, height: 16)
-                    if provider == .codex ? store.showCodexNameInMenuBar : store.showClaudeNameInMenuBar {
-                        Text(provider.menuBarName)
-                    }
-                    let values = store.menuBarValues(for: provider)
-                    if !values.isEmpty {
-                        Text(values.joined(separator: " ")).monospacedDigit()
+        let content = HStack(spacing: 8) {
+            if providers.isEmpty {
+                Text("Ratok")
+            } else {
+                ForEach(providers) { provider in
+                    HStack(spacing: 4) {
+                        Image(nsImage: provider.markImage).renderingMode(.template)
+                            .resizable().scaledToFit().frame(width: 16, height: 16)
+                        if store.showsMenuBarName(for: provider) {
+                            Text(provider.menuBarName)
+                        }
+                        let values = store.menuBarValues(for: provider)
+                        if !values.isEmpty {
+                            Text(values.joined(separator: " ")).monospacedDigit()
+                        }
                     }
                 }
             }

@@ -18,16 +18,38 @@ enum EntryPoint {
         if args.contains("--diagnose") {
             Task {
                 let scanner = UsageScanner()
-                for provider in Provider.allCases {
-                    let root = (provider == .claude ? UsagePaths.claude.appendingPathComponent("projects") : UsagePaths.codex.appendingPathComponent("sessions"))
-                    let snapshot = await scanner.scan(provider: provider, root: root, start: UsagePeriod.today.start(now: Date()),
-                                                      bridge: provider == .claude ? UsagePaths.claudeLimits : nil)
+                var combined: [Provider: UsageSnapshot] = [:]
+                for logProvider in [Provider.claude, .codex] {
+                    let root = logProvider == .claude
+                        ? UsagePaths.claude.appendingPathComponent("projects")
+                        : UsagePaths.codex.appendingPathComponent("sessions")
+                    let snapshots = await scanner.scanByEndpoint(
+                        provider: logProvider, root: root, start: UsagePeriod.today.start(now: Date()),
+                        bridge: logProvider == .claude ? UsagePaths.claudeLimits : nil)
+                    for (endpoint, snapshot) in snapshots {
+                        combined[endpoint] = combined[endpoint]?.merging(snapshot) ?? snapshot
+                    }
+                }
+                for endpoint in [Provider.claude, .codex, .openCodeGo] {
+                    guard let snapshot = combined[endpoint] else { continue }
                     let cost = snapshot.estimatedCost
                     let usd = cost.amountUSD.map { String(format: "%.6f", $0) } ?? "unavailable"
-                    print("\(provider.name): input=\(snapshot.tokens.input) output=\(snapshot.tokens.output) cacheRead=\(snapshot.tokens.cacheRead) cacheWrite=\(snapshot.tokens.cacheWrite) files=\(snapshot.files) limits=\(snapshot.limits?.windows.count ?? 0) issues=\(snapshot.issues.count) apiEstimateUSD=\(usd) unpricedTokens=\(cost.unpricedTokens)")
+                    print("\(endpoint.name) [\(endpoint.endpointName)]: input=\(snapshot.tokens.input) output=\(snapshot.tokens.output) cacheRead=\(snapshot.tokens.cacheRead) cacheWrite=\(snapshot.tokens.cacheWrite) files=\(snapshot.files) limits=\(snapshot.limits?.windows.count ?? 0) issues=\(snapshot.issues.count) apiEstimateUSD=\(usd) unpricedTokens=\(cost.unpricedTokens)")
                 }
                 let account = await ClaudeAccount.readLimits()
-                print("Claude Code account limits: " + (account?.windows.map { "\($0.id)=\($0.usedPercent)%" }.joined(separator: " ") ?? "unavailable"))
+                print("Claude account limits: " + (account?.windows.map { "\($0.id)=\($0.usedPercent)%" }.joined(separator: " ") ?? "unavailable"))
+                if let key = OpenCodeGoCredentials.detect()?.key {
+                    switch await OpenCodeGoAccount.readLimits(key: key) {
+                    case .available(let limits):
+                        print("OpenCode Go limits: " + limits.windows.map { "\($0.id)=\($0.usedPercent)%" }.joined(separator: " "))
+                    case .unauthorized:
+                        print("OpenCode Go limits: API key rejected")
+                    case .failed:
+                        print("OpenCode Go limits: unavailable")
+                    }
+                } else {
+                    print("OpenCode Go limits: API key not found")
+                }
                 exit(0)
             }
             dispatchMain()

@@ -20,12 +20,15 @@ func localizedWindowTitle(_ window: LimitWindow, language: AppLanguage) -> Strin
     switch window.id {
     case "primary", "five_hour", "5h": return "5-hour"
     case "secondary", "weekly", "7d": return "Weekly"
+    case "monthly": return "Monthly"
     default:
         if window.title == "5時間" { return "5-hour" }
         if window.title == "週間" { return "Weekly" }
+        if window.title == "月間" { return "Monthly" }
         if window.title == "追加利用" { return "Extra usage" }
         if window.title.hasSuffix(" · 5時間") { return window.title.dropLast(3) + "5-hour" }
         if window.title.hasSuffix(" · 週間") { return window.title.dropLast(2) + "Weekly" }
+        if window.title.hasSuffix(" · 月間") { return window.title.dropLast(2) + "Monthly" }
         return window.title
     }
 }

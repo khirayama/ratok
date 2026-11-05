@@ -33,3 +33,4 @@ jobs:
           codesign --verify --deep --strict --verbose=2 dist/Ratok.app
           test -s dist/Ratok.app/Contents/Resources/Ratok_Ratok.bundle/codex-mark.png
           test -s dist/Ratok.app/Contents/Resources/Ratok_Ratok.bundle/claude-mark.png
+          test -s dist/Ratok.app/Contents/Resources/Ratok_Ratok.bundle/opencode-mark.png

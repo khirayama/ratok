@@ -6,16 +6,33 @@ enum MenuBarPercentageMode: String {
     case remaining, used
 }
 
+enum OpenCodeGoStatus {
+    case idle, available, unauthorized, failed
+}
+
 @Observable
 final class UsageStore {
     var language: AppLanguage = AppLanguage(rawValue: UserDefaults.standard.string(forKey: "appLanguage") ?? "ja") ?? .japanese {
         didSet { UserDefaults.standard.set(language.rawValue, forKey: "appLanguage") }
     }
-    var showCodexNameInMenuBar = UserDefaults.standard.object(forKey: "showCodexNameInMenuBar") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(showCodexNameInMenuBar, forKey: "showCodexNameInMenuBar") }
+    var showChatGPT = UserDefaults.standard.object(forKey: "showChatGPT") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showChatGPT, forKey: "showChatGPT") }
+    }
+    var showClaude = UserDefaults.standard.object(forKey: "showClaude") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showClaude, forKey: "showClaude") }
+    }
+    var showOpenCodeGo = UserDefaults.standard.object(forKey: "showOpenCodeGo") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showOpenCodeGo, forKey: "showOpenCodeGo") }
+    }
+    var showChatGPTNameInMenuBar = UserDefaults.standard.object(forKey: "showChatGPTNameInMenuBar") as? Bool
+        ?? UserDefaults.standard.object(forKey: "showCodexNameInMenuBar") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showChatGPTNameInMenuBar, forKey: "showChatGPTNameInMenuBar") }
     }
     var showClaudeNameInMenuBar = UserDefaults.standard.object(forKey: "showClaudeNameInMenuBar") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showClaudeNameInMenuBar, forKey: "showClaudeNameInMenuBar") }
+    }
+    var showOpenCodeGoNameInMenuBar = UserDefaults.standard.object(forKey: "showOpenCodeGoNameInMenuBar") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showOpenCodeGoNameInMenuBar, forKey: "showOpenCodeGoNameInMenuBar") }
     }
     var showBothLimitWindowsInMenuBar = UserDefaults.standard.bool(forKey: "showBothLimitWindowsInMenuBar") {
         didSet { UserDefaults.standard.set(showBothLimitWindowsInMenuBar, forKey: "showBothLimitWindowsInMenuBar") }
@@ -45,33 +62,113 @@ final class UsageStore {
         didSet {
             UserDefaults.standard.set(menuBarPeriod.rawValue, forKey: "menuBarPeriod")
             guard oldValue != menuBarPeriod else { return }
-            menuBarSnapshots = [:]
+            menuBarSnapshots = openCodeGoSnapshots
             if showsMenuBarUsage { Task { await refresh() } }
         }
     }
-    var period = UsagePeriod.today {
+    var period = UsagePeriod(rawValue: UserDefaults.standard.string(forKey: "period") ?? "today") ?? .today {
         didSet {
             guard oldValue != period else { return }
+            UserDefaults.standard.set(period.rawValue, forKey: "period")
             // Keep the menu bar's figures while the dashboard switches to another period.
             if oldValue == menuBarPeriod { menuBarSnapshots = snapshots }
-            snapshots = [:]
+            // Limits do not depend on the period, so they stay on screen while the new period is counted.
+            scanGeneration += 1
+            snapshots = snapshots.mapValues { $0.keepingLimits() }
+            liveScans = [:]
+            awaitingProviders = [.claude, .codex, .openCodeGo]
+            countingUsage = false
         }
     }
+    var grouping = UsageGrouping(rawValue: UserDefaults.standard.string(forKey: "usageGrouping") ?? "model") ?? .model {
+        didSet { UserDefaults.standard.set(grouping.rawValue, forKey: "usageGrouping") }
+    }
     var snapshots: [Provider: UsageSnapshot] = [:]
+    /// Providers with no figures on screen yet for the selected period.
+    private(set) var awaitingProviders: Set<Provider> = []
+    /// True while a slow scan is still refining the figures on screen.
+    private(set) var countingUsage = false
     /// Usage for the menu bar period, scanned only when it differs from the dashboard period.
     var menuBarSnapshots: [Provider: UsageSnapshot] = [:]
+    var openCodeGoKeySource: OpenCodeGoKeySource?
+    var openCodeGoStatus: OpenCodeGoStatus = .idle
+    var openCodeGoRefreshing = false
     var codexResetCredits: ResetCreditSnapshot?
     @ObservationIgnored private var codexAccountLimits: LimitSnapshot?
     @ObservationIgnored private var claudeAccountLimits: LimitSnapshot?
     @ObservationIgnored private var claudeAccountRequestedAt: Date?
+    @ObservationIgnored private var openCodeGoKey: String?
+    @ObservationIgnored private var openCodeGoLastSnapshot: UsageSnapshot?
+    @ObservationIgnored private var openCodeGoRequestedAt: Date?
+    @ObservationIgnored private var openCodeGoNextFetch: Date?
+    @ObservationIgnored private var openCodeGoGeneration = 0
     var refreshing = false
     var updatedAt: Date?
     var bridgeInstalled = BridgeInstaller().installed
     var error: String?
-    @ObservationIgnored private let scanner = UsageScanner()
+    // Separate scanners so the Claude and ChatGPT logs are counted at the same time.
+    @ObservationIgnored private let claudeScanner = UsageScanner()
+    @ObservationIgnored private let codexScanner = UsageScanner()
+    /// Figures streamed so far, keyed by the log source they came from.
+    @ObservationIgnored private var liveScans: [Provider: [Provider: UsageSnapshot]] = [:]
+    @ObservationIgnored private var scanGeneration = 0
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
     @ObservationIgnored private var resetCreditsRequestedAt: Date?
     @ObservationIgnored private var resetCreditsNextFetch: Date?
+
+    func isVisible(_ provider: Provider) -> Bool {
+        switch provider {
+        case .codex: showChatGPT
+        case .claude: showClaude
+        case .openCodeGo: showOpenCodeGo
+        }
+    }
+
+    func showsMenuBarName(for provider: Provider) -> Bool {
+        switch provider {
+        case .codex: showChatGPTNameInMenuBar
+        case .claude: showClaudeNameInMenuBar
+        case .openCodeGo: showOpenCodeGoNameInMenuBar
+        }
+    }
+
+    /// Providers shown in the dashboard and menu bar, in menu bar order.
+    var visibleProviders: [Provider] {
+        [.codex, .claude, .openCodeGo].filter(isVisible)
+    }
+
+    /// Log-backed providers shown in the dashboard. OpenCode Go has its own account card.
+    var visibleUsageProviders: [Provider] {
+        visibleProviders.filter { $0 != .openCodeGo }
+    }
+
+    /// OpenCode Go has no useful menu bar entry until a key has been found or saved.
+    var menuBarProviders: [Provider] {
+        visibleProviders.filter { $0 != .openCodeGo || openCodeGoKeySource != nil }
+    }
+
+    var openCodeGoKeyConfigured: Bool { openCodeGoKeySource != nil }
+    var openCodeGoUsesSavedKey: Bool { openCodeGoKeySource == .keychain }
+
+    private var openCodeGoSnapshots: [Provider: UsageSnapshot] {
+        guard let snapshot = openCodeGoLastSnapshot else { return [:] }
+        var go = snapshot
+        go.endpoint = .openCodeGo
+        return [.openCodeGo: go]
+    }
+
+    /// Limits come from the OpenCode Go account API; token counts come from local logs.
+    private func applyOpenCodeGoLimits(to snapshots: inout [Provider: UsageSnapshot]) {
+        var go = snapshots[.openCodeGo] ?? UsageSnapshot()
+        go.endpoint = .openCodeGo
+        if let account = openCodeGoLastSnapshot {
+            go.limits = account.limits
+            for issue in account.issues where !go.issues.contains(issue) {
+                go.issues.append(issue)
+            }
+        }
+        snapshots[.openCodeGo] = go
+    }
 
     func menuPercentageText(for provider: Provider, window: LimitWindow?) -> String {
         let percentage: Double?
@@ -122,7 +219,9 @@ final class UsageStore {
     }
 
     func menuBarUsage(for provider: Provider) -> UsageSnapshot? {
-        menuBarPeriod == period ? snapshots[provider] : menuBarSnapshots[provider]
+        guard menuBarPeriod == period else { return menuBarSnapshots[provider] }
+        // The figures on screen belong to the previous period until the new one has been counted.
+        return awaitingProviders.contains(provider) ? nil : snapshots[provider]
     }
 
     func menuBarValues(for provider: Provider) -> [String] {
@@ -219,6 +318,9 @@ final class UsageStore {
     }
 
     init() {
+        let credential = OpenCodeGoCredentials.detect()
+        openCodeGoKey = credential?.key
+        openCodeGoKeySource = credential?.source
         refreshTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.refresh()
@@ -233,33 +335,96 @@ final class UsageStore {
         defer { refreshing = false }
         refreshCodexAccount(force: manual)
         refreshClaudeAccount(force: manual)
+        refreshOpenCodeGo(force: manual)
         let selectedPeriod = period
         let selectedMenuBarPeriod = menuBarScanPeriod
         let now = Date()
-        let usage = await scanUsage(start: selectedPeriod.start(now: now), now: now)
+        let generation = scanGeneration
+        // Stream figures while counting only when the screen has nothing for this period yet.
+        let streaming = !awaitingProviders.isEmpty || snapshots.isEmpty
+        if streaming {
+            liveScans = [:]
+            countingUsage = true
+        }
+        let usage = await scanUsage(start: selectedPeriod.start(now: now), now: now, generation: generation,
+                                    period: selectedPeriod, streaming: streaming)
+        countingUsage = false
         var menuUsage: [Provider: UsageSnapshot] = [:]
         if let selectedMenuBarPeriod {
-            menuUsage = await scanUsage(start: selectedMenuBarPeriod.start(now: now), now: now)
+            menuUsage = await scanUsage(start: selectedMenuBarPeriod.start(now: now), now: now, generation: generation,
+                                        period: selectedPeriod, streaming: false)
         }
         // A period selection can change while disk reads are in progress.
-        guard selectedPeriod == period, selectedMenuBarPeriod == menuBarScanPeriod else {
+        guard selectedPeriod == period, selectedMenuBarPeriod == menuBarScanPeriod, generation == scanGeneration else {
             refreshing = false
             await refresh()
             return
         }
         snapshots = usage
         menuBarSnapshots = menuUsage
+        awaitingProviders = []
+        liveScans = [:]
+        applyOpenCodeGoLimits(to: &snapshots)
+        applyOpenCodeGoLimits(to: &menuBarSnapshots)
         mergeCodexAccountLimits()
         mergeClaudeAccountLimits()
         updatedAt = Date()
         bridgeInstalled = BridgeInstaller().installed
     }
 
-    private func scanUsage(start: Date, now: Date) async -> [Provider: UsageSnapshot] {
-        let claude = await scanner.scan(provider: .claude, root: UsagePaths.claude.appendingPathComponent("projects"),
-                                        start: start, now: now, bridge: UsagePaths.claudeLimits)
-        let codex = await scanner.scan(provider: .codex, root: UsagePaths.codex.appendingPathComponent("sessions"), start: start, now: now)
-        return [.claude: claude, .codex: codex]
+    private func scanUsage(start: Date, now: Date, generation: Int, period selectedPeriod: UsagePeriod,
+                           streaming: Bool) async -> [Provider: UsageSnapshot] {
+        // Both log trees are read at once, so the wait is the slower of the two rather than their sum.
+        func progress(for root: Provider) -> (@Sendable ([Provider: UsageSnapshot]) async -> Void)? {
+            guard streaming else { return nil }
+            return { snapshots in
+                await self.applyPartial(snapshots, from: root, generation: generation, period: selectedPeriod)
+            }
+        }
+        async let claude = claudeScanner.scanByEndpoint(
+            provider: .claude, root: UsagePaths.claude.appendingPathComponent("projects"),
+            start: start, now: now, bridge: UsagePaths.claudeLimits, progress: progress(for: .claude))
+        async let codex = codexScanner.scanByEndpoint(
+            provider: .codex, root: UsagePaths.codex.appendingPathComponent("sessions"),
+            start: start, now: now, progress: progress(for: .codex))
+        let (claudeSnapshots, codexSnapshots) = await (claude, codex)
+        var merged: [Provider: UsageSnapshot] = [:]
+        for snapshots in [claudeSnapshots, codexSnapshots] {
+            for (endpoint, snapshot) in snapshots {
+                merged[endpoint] = merged[endpoint]?.merging(snapshot) ?? snapshot
+            }
+        }
+        return merged
+    }
+
+    /// Shows the figures one log source has counted so far, while the other one is still being read.
+    private func applyPartial(_ snapshots: [Provider: UsageSnapshot], from root: Provider,
+                              generation: Int, period selectedPeriod: UsagePeriod) {
+        guard generation == scanGeneration, selectedPeriod == period else { return }
+        liveScans[root] = snapshots
+        // Start from the limits already on screen so providers that have not reported yet keep theirs.
+        var merged = self.snapshots.mapValues { $0.keepingLimits() }
+        for scans in liveScans.values {
+            for (endpoint, snapshot) in scans {
+                merged[endpoint] = merged[endpoint]?.merging(snapshot) ?? snapshot
+            }
+        }
+        applyKnownLimits(to: &merged)
+        self.snapshots = merged
+        awaitingProviders.subtract(snapshots.keys)
+    }
+
+    /// Account limits come from outside the log scan, so they are kept on figures as they stream in.
+    private func applyKnownLimits(to snapshots: inout [Provider: UsageSnapshot]) {
+        applyOpenCodeGoLimits(to: &snapshots)
+        if let account = codexAccountLimits, var codex = snapshots[.codex] {
+            codex.limits = codex.limits?.merging(account) ?? account
+            snapshots[.codex] = codex
+        }
+        if let account = claudeAccountLimits, var claude = snapshots[.claude] {
+            claude.limits = claude.limits?.merging(account) ?? account
+            snapshots[.claude] = claude
+        }
     }
 
     /// Rollouts record only the pool a session used, so pools such as Luna Reserve come from the app server.
@@ -317,6 +482,111 @@ final class UsageStore {
                 resetCreditsNextFetch = min(resetCreditsNextFetch ?? .distantFuture, finished.addingTimeInterval(300))
             }
         }
+    }
+
+    private func refreshOpenCodeGo(force: Bool) {
+        guard let key = openCodeGoKey else { return }
+        let now = Date()
+        if let last = openCodeGoRequestedAt, now.timeIntervalSince(last) < (force ? 10 : 300) { return }
+        if !force, let next = openCodeGoNextFetch, now < next { return }
+        openCodeGoRequestedAt = now
+        // Until the answer arrives, don't start a second read on the next 30-second tick.
+        openCodeGoNextFetch = now.addingTimeInterval(300)
+        openCodeGoRefreshing = true
+        let generation = openCodeGoGeneration
+        Task {
+            let read = await OpenCodeGoAccount.readLimits(key: key)
+            let finished = Date()
+            guard generation == openCodeGoGeneration else { return }
+            openCodeGoRefreshing = false
+            switch read {
+            case .available(let limits):
+                openCodeGoStatus = .available
+                var snapshot = UsageSnapshot()
+                snapshot.endpoint = .openCodeGo
+                snapshot.limits = limits
+                openCodeGoLastSnapshot = snapshot
+                openCodeGoNextFetch = finished.addingTimeInterval(300)
+            case .unauthorized:
+                openCodeGoStatus = .unauthorized
+                openCodeGoLastSnapshot = openCodeGoSnapshot(issue: "OpenCode GoのAPIキーが無効です。")
+            case .failed:
+                openCodeGoStatus = .failed
+                openCodeGoLastSnapshot = openCodeGoSnapshot(issue: "OpenCode Goの利用状況を取得できませんでした。")
+            }
+            openCodeGoNextFetch = min(openCodeGoNextFetch ?? .distantFuture, finished.addingTimeInterval(300))
+            if let account = openCodeGoLastSnapshot {
+                // The API only knows limits; keep the token figures the local logs already counted.
+                var go = snapshots[.openCodeGo] ?? UsageSnapshot()
+                go.endpoint = .openCodeGo
+                go.limits = account.limits
+                go.issues = account.issues
+                snapshots[.openCodeGo] = go
+                if var menuGo = menuBarSnapshots[.openCodeGo] {
+                    menuGo.endpoint = .openCodeGo
+                    menuGo.limits = account.limits
+                    menuGo.issues = account.issues
+                    menuBarSnapshots[.openCodeGo] = menuGo
+                }
+            }
+        }
+    }
+
+    private func openCodeGoSnapshot(issue: String) -> UsageSnapshot {
+        var snapshot = openCodeGoLastSnapshot ?? UsageSnapshot()
+        snapshot.endpoint = .openCodeGo
+        snapshot.issues = [issue]
+        return snapshot
+    }
+
+    func saveOpenCodeGoKey(_ key: String) throws {
+        try OpenCodeGoCredentials.saveToKeychain(key)
+        openCodeGoKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        openCodeGoKeySource = .keychain
+        openCodeGoLastSnapshot = nil
+        openCodeGoStatus = .idle
+        var go = snapshots[.openCodeGo] ?? UsageSnapshot()
+        go.endpoint = .openCodeGo
+        go.limits = nil
+        go.issues = []
+        snapshots[.openCodeGo] = go
+        if var menuGo = menuBarSnapshots[.openCodeGo] {
+            menuGo.endpoint = .openCodeGo
+            menuGo.limits = nil
+            menuGo.issues = []
+            menuBarSnapshots[.openCodeGo] = menuGo
+        }
+        openCodeGoRequestedAt = nil
+        openCodeGoNextFetch = nil
+        openCodeGoGeneration += 1
+        openCodeGoRefreshing = false
+        error = nil
+        refreshOpenCodeGo(force: true)
+    }
+
+    func removeOpenCodeGoKey() {
+        OpenCodeGoCredentials.removeFromKeychain()
+        let credential = OpenCodeGoCredentials.detect()
+        openCodeGoKey = credential?.key
+        openCodeGoKeySource = credential?.source
+        openCodeGoLastSnapshot = nil
+        openCodeGoStatus = .idle
+        var go = snapshots[.openCodeGo] ?? UsageSnapshot()
+        go.endpoint = .openCodeGo
+        go.limits = nil
+        go.issues = []
+        snapshots[.openCodeGo] = go
+        if var menuGo = menuBarSnapshots[.openCodeGo] {
+            menuGo.endpoint = .openCodeGo
+            menuGo.limits = nil
+            menuGo.issues = []
+            menuBarSnapshots[.openCodeGo] = menuGo
+        }
+        openCodeGoRequestedAt = nil
+        openCodeGoNextFetch = nil
+        openCodeGoGeneration += 1
+        openCodeGoRefreshing = false
+        if openCodeGoKey != nil { refreshOpenCodeGo(force: true) }
     }
 
     func toggleBridge() {
