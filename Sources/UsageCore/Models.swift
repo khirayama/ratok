@@ -111,6 +111,35 @@ public struct LimitWindow: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+/// The account-wide limit windows that can be chosen for the menu bar. Additional pools such as
+/// Luna Reserve are titled with their name and are not matched.
+public enum LimitWindowKind: String, CaseIterable, Codable, Sendable, Identifiable {
+    case fiveHour, weekly, monthly
+    public var id: String { rawValue }
+    private var title: String {
+        switch self {
+        case .fiveHour: "5時間"
+        case .weekly: "週間"
+        case .monthly: "月間"
+        }
+    }
+    public func matches(_ window: LimitWindow) -> Bool {
+        if window.title == title { return true }
+        // Codex names its main windows primary and secondary; a weekly-only plan reports a weekly primary.
+        let periodTitles = Self.allCases.map(\.title)
+        switch self {
+        case .fiveHour:
+            return ["five_hour", "5h"].contains(window.id)
+                || (window.id == "primary" && !periodTitles.contains(window.title))
+        case .weekly:
+            return ["seven_day", "weekly", "7d"].contains(window.id)
+                || (window.id == "secondary" && !periodTitles.contains(window.title))
+        case .monthly:
+            return window.id == "monthly"
+        }
+    }
+}
+
 public struct LimitSnapshot: Codable, Sendable, Equatable {
     public var windows: [LimitWindow]
     public var observedAt: Date
@@ -119,8 +148,19 @@ public struct LimitSnapshot: Codable, Sendable, Equatable {
         self.windows = windows; self.observedAt = observedAt; self.plan = plan
     }
     public var menuBarWindow: LimitWindow? {
-        windows.first { $0.id == "primary" || $0.title == "5時間" }
-            ?? windows.first { $0.id == "secondary" || $0.title == "週間" }
+        window(.fiveHour) ?? window(.weekly)
+    }
+    public func window(_ kind: LimitWindowKind) -> LimitWindow? {
+        windows.first(where: kind.matches)
+    }
+    /// The windows to show for the selected kinds, in the order given; nil marks a window not reported yet.
+    /// When none of them is known, the usual 5-hour-then-weekly choice is shown so a plan without the
+    /// selected windows still shows something.
+    public func menuBarWindows(for kinds: [LimitWindowKind]) -> [LimitWindow?] {
+        guard !kinds.isEmpty else { return [] }
+        let selected = kinds.map(window)
+        if selected.allSatisfy({ $0 == nil }), let fallback = menuBarWindow { return [fallback] }
+        return selected
     }
     /// Combines two sources for the same account: the newer one wins per window, and windows only the
     /// older one knows are kept. The main Codex windows stay ahead of additional pools.

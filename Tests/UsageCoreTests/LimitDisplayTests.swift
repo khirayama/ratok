@@ -183,3 +183,34 @@ func codexResetCreditsClassifyOtherMessages(_ line: String, _ expected: ResetCre
     #expect(token(#"{"claudeAiOauth":{"accessToken":""}}"#) == nil)
     #expect(token(#"{"mcpOAuth":{}}"#) == nil)
 }
+
+@Test func menuBarShowsSelectedWindowsInOrder() {
+    let short = LimitWindow(id: "primary", title: "5時間", usedPercent: 10, resetsAt: nil)
+    let weekly = LimitWindow(id: "secondary", title: "週間", usedPercent: 20, resetsAt: nil)
+    let monthly = LimitWindow(id: "monthly", title: "月間", usedPercent: 30, resetsAt: nil)
+    let limits = LimitSnapshot(windows: [monthly, weekly, short], observedAt: Date())
+    #expect(limits.menuBarWindows(for: [.fiveHour, .monthly]) == [short, monthly])
+    #expect(limits.menuBarWindows(for: [.fiveHour, .weekly, .monthly]) == [short, weekly, monthly])
+    #expect(limits.menuBarWindows(for: []) == [])
+}
+
+@Test func menuBarMarksMissingSelectedWindows() {
+    let short = LimitWindow(id: "five_hour", title: "5時間", usedPercent: 10, resetsAt: nil)
+    let limits = LimitSnapshot(windows: [short], observedAt: Date())
+    #expect(limits.menuBarWindows(for: [.fiveHour, .weekly]) == [short, nil])
+}
+
+@Test func menuBarFallsBackWhenNoSelectedWindowIsKnown() {
+    // A weekly-only Codex plan reports its weekly window as primary.
+    let weekly = LimitWindow(id: "primary", title: "週間", usedPercent: 20, resetsAt: nil)
+    let limits = LimitSnapshot(windows: [weekly], observedAt: Date())
+    #expect(limits.window(.fiveHour) == nil)
+    #expect(limits.window(.weekly) == weekly)
+    #expect(limits.menuBarWindows(for: [.fiveHour]) == [weekly])
+    #expect(LimitSnapshot(windows: [], observedAt: Date()).menuBarWindows(for: [.fiveHour, .weekly]) == [nil, nil])
+}
+
+@Test func additionalPoolsAreNotMenuBarWindows() {
+    let pool = LimitWindow(id: "luna_primary", title: "Luna Reserve · 5時間", usedPercent: 50, resetsAt: nil)
+    #expect(LimitWindowKind.allCases.allSatisfy { !$0.matches(pool) })
+}
