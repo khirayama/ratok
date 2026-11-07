@@ -53,3 +53,11 @@ func pricingAssumptions(language: AppLanguage) -> String {
         language: language
     )
 }
+
+func limitKindTitle(_ kind: LimitWindowKind, language: AppLanguage) -> String {
+    switch kind {
+    case .fiveHour: localized("5時間", "5-hour", language: language)
+    case .weekly: localized("週間", "Weekly", language: language)
+    case .monthly: localized("月間", "Monthly", language: language)
+    }
+}

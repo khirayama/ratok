@@ -46,9 +46,13 @@ struct Dashboard: View {
                 }
             }
             if store.visibleProviders.isEmpty {
-                Text(localized("表示するプロバイダーを選んでください。", "Choose at least one provider to show.", language: store.language))
-                    .font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .center).padding(.vertical, 20)
+                VStack(spacing: 8) {
+                    Text(localized("表示するプロバイダーを選んでください。", "Choose at least one provider to show.", language: store.language))
+                        .font(.caption).foregroundStyle(.secondary)
+                    Button(localized("設定を開く…", "Open Settings…", language: store.language), action: openSettings)
+                        .controlSize(.small)
+                }
+                .frame(maxWidth: .infinity, alignment: .center).padding(.vertical, 20)
             }
             if let error = store.error { Text(error).font(.caption).foregroundStyle(.red) }
             Text(localized("トークンはこのMacのログから集計（入力はキャッシュ込み）。Claude・ChatGPTの制限はアカウント全体の最終取得値、OpenCode Goはアカウント全体の使用率をAPIから取得します。", "Tokens are counted from logs on this Mac (input includes cache). Claude and ChatGPT limits show the latest account-wide values; OpenCode Go reads account-wide usage from its API.", language: store.language))
@@ -68,66 +72,23 @@ struct Dashboard: View {
                 }
                 Spacer()
                 Menu {
-                    Picker(localized("表示言語", "Language", language: store.language), selection: $store.language) {
-                        ForEach(AppLanguage.allCases) { language in Text(language.title).tag(language) }
-                    }
-                    Divider()
-                    Toggle(localized("ChatGPTを表示", "Show ChatGPT", language: store.language), isOn: $store.showChatGPT)
-                    Toggle(localized("Claudeを表示", "Show Claude", language: store.language), isOn: $store.showClaude)
-                    Toggle(localized("OpenCode Goを表示", "Show OpenCode Go", language: store.language), isOn: $store.showOpenCodeGo)
-                    Menu(localized("メニューバーの名称", "Menu bar names", language: store.language)) {
-                        Toggle("ChatGPT", isOn: $store.showChatGPTNameInMenuBar)
-                        Toggle("Claude", isOn: $store.showClaudeNameInMenuBar)
-                        Toggle("OpenCode Go", isOn: $store.showOpenCodeGoNameInMenuBar)
-                    }
-                    Button(store.openCodeGoKeyConfigured
-                           ? localized("OpenCode Go APIキーを変更…", "Change OpenCode Go API key…", language: store.language)
-                           : localized("OpenCode Go APIキーを設定…", "Set OpenCode Go API key…", language: store.language)) {
-                        store.showOpenCodeGo = true
-                        editingOpenCodeGoKey = true
-                    }
-                    if store.openCodeGoUsesSavedKey {
-                        Button(localized("OpenCode Go APIキーを削除", "Remove OpenCode Go API key", language: store.language)) {
-                            store.removeOpenCodeGoKey()
-                        }
-                    }
-                    Divider()
-                    Toggle(localized("制限の割合を表示", "Show limit percentage", language: store.language), isOn: $store.showLimitsInMenuBar)
-                    Toggle(localized("5h・週間の両方を表示", "Show both 5h and weekly limits", language: store.language), isOn: $store.showBothLimitWindowsInMenuBar)
-                        .disabled(!store.showLimitsInMenuBar)
-                    Picker(localized("割合の表示", "Percentage display", language: store.language), selection: $store.menuBarPercentageMode) {
-                        Text(localized("残量", "Remaining", language: store.language)).tag(MenuBarPercentageMode.remaining)
-                        Text(localized("使用量", "Used", language: store.language)).tag(MenuBarPercentageMode.used)
-                    }.disabled(!store.showLimitsInMenuBar)
-                    Toggle(localized("推定コストを表示", "Show estimated cost", language: store.language), isOn: $store.showCostInMenuBar)
-                    Toggle(localized("トークン量を表示", "Show token count", language: store.language), isOn: $store.showTokensInMenuBar)
-                    Toggle(localized("トークン量にキャッシュを含める", "Include cache in token count", language: store.language), isOn: $store.includeCacheInMenuBarTokens)
-                        .disabled(!store.showTokensInMenuBar)
-                    Picker(localized("コスト・トークンの期間", "Cost and token period", language: store.language), selection: $store.menuBarPeriod) {
-                        ForEach(UsagePeriod.allCases) { Text(periodTitle($0, language: store.language)).tag($0) }
-                    }.disabled(!store.showsMenuBarUsage)
-                    Divider()
-                    Button(store.bridgeInstalled
-                           ? localized("Claude連携を解除", "Disconnect Claude integration", language: store.language)
-                           : localized("Claudeの制限表示を接続", "Connect Claude limits", language: store.language), action: store.toggleBridge)
-                    Divider()
+                    Button(localized("設定…", "Settings…", language: store.language), action: openSettings)
+                        .keyboardShortcut(",")
                     Button(localized("アップデートを確認…", "Check for Updates…", language: store.language), action: updates.checkForUpdates)
                         .disabled(!updates.canCheckForUpdates)
-                    Toggle(localized("アップデートを自動確認", "Automatically Check for Updates", language: store.language), isOn: $updates.automaticallyChecksForUpdates)
-                        .disabled(!updates.isConfigured)
-                    Toggle(localized("アップデートを自動インストール", "Automatically Install Updates", language: store.language), isOn: $updates.automaticallyDownloadsUpdates)
-                        .disabled(!updates.isConfigured)
-                    if let message = updates.configurationMessage(for: store.language) {
-                        Text(message)
-                    }
                     Divider()
                     Button(localized("Ratokを終了", "Quit Ratok", language: store.language)) { NSApplication.shared.terminate(nil) }
+                        .keyboardShortcut("q")
                 } label: { Image(systemName: "gearshape") }.menuStyle(.borderlessButton).fixedSize()
             }
         }
         .padding(14).frame(width: dashboardWidth)
         .fixedSize(horizontal: false, vertical: true)
         .environment(\.locale, store.language.locale)
+    }
+
+    private func openSettings() {
+        SettingsWindowController.shared.show(store: store, updates: updates)
     }
 }
 
@@ -285,9 +246,6 @@ private struct OpenCodeGoCard: View {
     @Binding var editing: Bool
     let period: UsagePeriod
     let grouping: UsageGrouping
-    @State private var draft = ""
-    @State private var saveError: String?
-    @FocusState private var keyFieldFocused: Bool
     private var accent: Color { Color(red: 0.45, green: 0.42, blue: 0.68) }
     private var snapshot: UsageSnapshot? { store.snapshots[.openCodeGo] }
     var body: some View {
@@ -337,11 +295,11 @@ private struct OpenCodeGoCard: View {
                 }
             }
             if editing {
-                editor
+                OpenCodeGoKeyEditor(store: store) { editing = false }
             } else if !store.openCodeGoKeyConfigured {
                 Text(localized("OpenCode GoのAPIキーを設定すると、5時間・週間・月間の利用状況を表示します。", "Set an OpenCode Go API key to show 5-hour, weekly, and monthly usage.", language: store.language))
                     .font(.caption).foregroundStyle(.secondary)
-                Button(localized("APIキーを設定…", "Set API key…", language: store.language)) { beginEditing() }
+                Button(localized("APIキーを設定…", "Set API key…", language: store.language)) { editing = true }
                     .controlSize(.small)
             } else if let snapshot = snapshot {
                 if let limits = snapshot.limits, !limits.windows.isEmpty {
@@ -355,7 +313,7 @@ private struct OpenCodeGoCard: View {
                     Text(localizedGoIssue(issue, language: store.language)).font(.caption).foregroundStyle(.orange)
                 }
                 if store.openCodeGoStatus == .unauthorized {
-                    Button(localized("APIキーを変更…", "Change API key…", language: store.language)) { beginEditing() }
+                    Button(localized("APIキーを変更…", "Change API key…", language: store.language)) { editing = true }
                         .controlSize(.small)
                 }
             } else {
@@ -376,8 +334,17 @@ private struct OpenCodeGoCard: View {
         .background(.primary.opacity(0.035), in: RoundedRectangle(cornerRadius: 14))
         .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.primary.opacity(0.055)))
     }
+}
 
-    private var editor: some View {
+/// Pasting a key for OpenCode Go, shared by the dashboard card and settings.
+struct OpenCodeGoKeyEditor: View {
+    let store: UsageStore
+    let onFinish: () -> Void
+    @State private var draft = ""
+    @State private var saveError: String?
+    @FocusState private var keyFieldFocused: Bool
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(localized("claude-go / codex-go の oc_sk_… キーを貼り付け（Keychainに保存）", "Paste the oc_sk_… key used by claude-go / codex-go (stored in Keychain).", language: store.language))
                 .font(.caption).foregroundStyle(.secondary)
@@ -396,16 +363,16 @@ private struct OpenCodeGoCard: View {
                 if store.openCodeGoUsesSavedKey {
                     Button(localized("削除", "Remove", language: store.language), role: .destructive) {
                         store.removeOpenCodeGoKey()
-                        finishEditing()
+                        onFinish()
                     }
                 }
                 Spacer()
-                Button(localized("キャンセル", "Cancel", language: store.language)) { finishEditing() }
+                Button(localized("キャンセル", "Cancel", language: store.language), action: onFinish)
                     .keyboardShortcut(.cancelAction)
                 Button(localized("保存", "Save", language: store.language)) {
                     do {
                         try store.saveOpenCodeGoKey(draft)
-                        finishEditing()
+                        onFinish()
                     } catch {
                         saveError = store.language == .japanese ? error.localizedDescription : "Could not save the API key."
                     }
@@ -415,21 +382,9 @@ private struct OpenCodeGoCard: View {
             }
         }
     }
-
-    private func beginEditing() {
-        editing = true
-        draft = ""
-        saveError = nil
-    }
-
-    private func finishEditing() {
-        editing = false
-        draft = ""
-        saveError = nil
-    }
 }
 
-private func openCodeGoSourceTitle(_ source: OpenCodeGoKeySource?, language: AppLanguage) -> String {
+func openCodeGoSourceTitle(_ source: OpenCodeGoKeySource?, language: AppLanguage) -> String {
     switch source {
     case .keychain: localized("Keychainに保存済み", "Saved in Keychain", language: language)
     case .environment: localized("環境変数から検出", "Detected in the environment", language: language)

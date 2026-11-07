@@ -44,7 +44,7 @@ struct MenuBarLabel: View {
             .help(help)
     }
 
-    private var image: NSImage {
+    var image: NSImage {
         let content = HStack(spacing: 8) {
             if providers.isEmpty {
                 Text("Ratok")

@@ -15,45 +15,17 @@ final class UsageStore {
     var language: AppLanguage = AppLanguage(rawValue: UserDefaults.standard.string(forKey: "appLanguage") ?? "ja") ?? .japanese {
         didSet { UserDefaults.standard.set(language.rawValue, forKey: "appLanguage") }
     }
-    var showChatGPT = UserDefaults.standard.object(forKey: "showChatGPT") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(showChatGPT, forKey: "showChatGPT") }
-    }
-    var showClaude = UserDefaults.standard.object(forKey: "showClaude") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(showClaude, forKey: "showClaude") }
-    }
-    var showOpenCodeGo = UserDefaults.standard.object(forKey: "showOpenCodeGo") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(showOpenCodeGo, forKey: "showOpenCodeGo") }
-    }
-    var showChatGPTNameInMenuBar = UserDefaults.standard.object(forKey: "showChatGPTNameInMenuBar") as? Bool
-        ?? UserDefaults.standard.object(forKey: "showCodexNameInMenuBar") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(showChatGPTNameInMenuBar, forKey: "showChatGPTNameInMenuBar") }
-    }
-    var showClaudeNameInMenuBar = UserDefaults.standard.object(forKey: "showClaudeNameInMenuBar") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(showClaudeNameInMenuBar, forKey: "showClaudeNameInMenuBar") }
-    }
-    var showOpenCodeGoNameInMenuBar = UserDefaults.standard.object(forKey: "showOpenCodeGoNameInMenuBar") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(showOpenCodeGoNameInMenuBar, forKey: "showOpenCodeGoNameInMenuBar") }
-    }
-    var showBothLimitWindowsInMenuBar = UserDefaults.standard.bool(forKey: "showBothLimitWindowsInMenuBar") {
-        didSet { UserDefaults.standard.set(showBothLimitWindowsInMenuBar, forKey: "showBothLimitWindowsInMenuBar") }
+    var providerSettings: [Provider: ProviderSettings] = Dictionary(
+        uniqueKeysWithValues: Provider.allCases.map { ($0, ProviderSettings.load(for: $0)) }) {
+        didSet {
+            for provider in Provider.allCases where oldValue[provider] != providerSettings[provider] {
+                settings(for: provider).save(for: provider)
+            }
+            if showsMenuBarUsage, !showsMenuBarUsage(oldValue) { Task { await refresh() } }
+        }
     }
     var menuBarPercentageMode = MenuBarPercentageMode(rawValue: UserDefaults.standard.string(forKey: "menuBarPercentageMode") ?? "remaining") ?? .remaining {
         didSet { UserDefaults.standard.set(menuBarPercentageMode.rawValue, forKey: "menuBarPercentageMode") }
-    }
-    var showLimitsInMenuBar = UserDefaults.standard.object(forKey: "showLimitsInMenuBar") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(showLimitsInMenuBar, forKey: "showLimitsInMenuBar") }
-    }
-    var showCostInMenuBar = UserDefaults.standard.bool(forKey: "showCostInMenuBar") {
-        didSet {
-            UserDefaults.standard.set(showCostInMenuBar, forKey: "showCostInMenuBar")
-            if showCostInMenuBar { Task { await refresh() } }
-        }
-    }
-    var showTokensInMenuBar = UserDefaults.standard.bool(forKey: "showTokensInMenuBar") {
-        didSet {
-            UserDefaults.standard.set(showTokensInMenuBar, forKey: "showTokensInMenuBar")
-            if showTokensInMenuBar { Task { await refresh() } }
-        }
     }
     var includeCacheInMenuBarTokens = UserDefaults.standard.bool(forKey: "includeCacheInMenuBarTokens") {
         didSet { UserDefaults.standard.set(includeCacheInMenuBarTokens, forKey: "includeCacheInMenuBarTokens") }
@@ -116,25 +88,23 @@ final class UsageStore {
     @ObservationIgnored private var resetCreditsRequestedAt: Date?
     @ObservationIgnored private var resetCreditsNextFetch: Date?
 
-    func isVisible(_ provider: Provider) -> Bool {
-        switch provider {
-        case .codex: showChatGPT
-        case .claude: showClaude
-        case .openCodeGo: showOpenCodeGo
-        }
+    func settings(for provider: Provider) -> ProviderSettings {
+        providerSettings[provider] ?? ProviderSettings()
     }
 
-    func showsMenuBarName(for provider: Provider) -> Bool {
-        switch provider {
-        case .codex: showChatGPTNameInMenuBar
-        case .claude: showClaudeNameInMenuBar
-        case .openCodeGo: showOpenCodeGoNameInMenuBar
-        }
+    func updateSettings(for provider: Provider, _ change: (inout ProviderSettings) -> Void) {
+        var settings = settings(for: provider)
+        change(&settings)
+        providerSettings[provider] = settings
     }
+
+    func isVisible(_ provider: Provider) -> Bool { settings(for: provider).visible }
+
+    func showsMenuBarName(for provider: Provider) -> Bool { settings(for: provider).showsName }
 
     /// Providers shown in the dashboard and menu bar, in menu bar order.
     var visibleProviders: [Provider] {
-        [.codex, .claude, .openCodeGo].filter(isVisible)
+        Provider.menuBarOrder.filter(isVisible)
     }
 
     /// Log-backed providers shown in the dashboard. OpenCode Go has its own account card.
@@ -183,35 +153,28 @@ final class UsageStore {
         return String(format: "%.0f%%", percentage.rounded())
     }
 
-    func menuBarWindows(for provider: Provider) -> [LimitWindow] {
-        guard let limits = snapshots[provider]?.limits else { return [] }
-        guard showBothLimitWindowsInMenuBar else { return limits.menuBarWindow.map { [$0] } ?? [] }
-        let fiveHour = limits.windows.first(where: isFiveHourWindow)
-        let weekly = limits.windows.first(where: isWeeklyWindow)
-        return [fiveHour, weekly].compactMap { $0 }
+    /// Windows chosen for the menu bar; nil marks one the provider has not reported yet.
+    func menuBarWindows(for provider: Provider) -> [LimitWindow?] {
+        let kinds = settings(for: provider).limitWindows
+        return snapshots[provider]?.limits?.menuBarWindows(for: kinds) ?? kinds.map { _ in nil }
     }
 
     func menuBarValue(for provider: Provider) -> String {
         let windows = menuBarWindows(for: provider)
-        guard !windows.isEmpty else { return "—" }
-        guard showBothLimitWindowsInMenuBar else { return menuPercentageText(for: provider, window: windows[0]) }
-        let fiveHour = windows.first(where: isFiveHourWindow)
-        let weekly = windows.first(where: isWeeklyWindow)
-        let values = [fiveHour, weekly].map { window in
+        guard windows.contains(where: { $0 != nil }) else { return "—" }
+        return windows.map { window in
             window.map { menuPercentageText(for: provider, window: $0) } ?? "—"
+        }.joined(separator: "/")
+    }
+
+    var showsMenuBarUsage: Bool { showsMenuBarUsage(providerSettings) }
+
+    private func showsMenuBarUsage(_ settings: [Provider: ProviderSettings]) -> Bool {
+        Provider.allCases.contains { provider in
+            guard let settings = settings[provider], settings.visible, settings.showsUsage else { return false }
+            return provider != .openCodeGo || openCodeGoKeySource != nil
         }
-        return values.joined(separator: "/")
     }
-
-    private func isFiveHourWindow(_ window: LimitWindow) -> Bool {
-        ["primary", "five_hour", "5h"].contains(window.id) || window.title == "5時間"
-    }
-
-    private func isWeeklyWindow(_ window: LimitWindow) -> Bool {
-        ["secondary", "seven_day", "weekly", "7d"].contains(window.id) || window.title == "週間"
-    }
-
-    var showsMenuBarUsage: Bool { showCostInMenuBar || showTokensInMenuBar }
 
     /// The period that needs a scan of its own; nil when the dashboard's scan already covers it.
     private var menuBarScanPeriod: UsagePeriod? {
@@ -225,11 +188,12 @@ final class UsageStore {
     }
 
     func menuBarValues(for provider: Provider) -> [String] {
+        let settings = settings(for: provider)
         var values: [String] = []
-        if showLimitsInMenuBar { values.append(menuBarValue(for: provider)) }
+        if !settings.limitWindows.isEmpty { values.append(menuBarValue(for: provider)) }
         let usage = menuBarUsage(for: provider)
-        if showCostInMenuBar { values.append(usage.map { menuBarCostText($0.estimatedCost) } ?? "—") }
-        if showTokensInMenuBar { values.append(usage.map { compact(menuBarTokenCount($0.tokens)) } ?? "—") }
+        if settings.showsCost { values.append(usage.map { menuBarCostText($0.estimatedCost) } ?? "—") }
+        if settings.showsTokens { values.append(usage.map { compact(menuBarTokenCount($0.tokens)) } ?? "—") }
         return values
     }
 
@@ -246,8 +210,9 @@ final class UsageStore {
     }
 
     func menuHelp(for provider: Provider) -> String {
-        var lines = showLimitsInMenuBar ? [limitHelp(for: provider)] : []
-        if showsMenuBarUsage { lines.append(usageHelp(for: provider)) }
+        let settings = settings(for: provider)
+        var lines = settings.limitWindows.isEmpty ? [] : [limitHelp(for: provider)]
+        if settings.showsUsage { lines.append(usageHelp(for: provider)) }
         return lines.isEmpty ? provider.name : lines.joined(separator: "\n")
     }
 
@@ -256,13 +221,14 @@ final class UsageStore {
         guard let usage = menuBarUsage(for: provider) else {
             return localized("\(provider.name): \(period)の使用量を集計中", "\(provider.name): loading usage for \(period)", language: language)
         }
+        let settings = settings(for: provider)
         var parts: [String] = []
-        if showCostInMenuBar {
+        if settings.showsCost {
             let cost = usage.estimatedCost
             let text = cost.amountUSD == nil && language == .english ? "Unpriced" : cost.displayText
             parts.append(localized("API換算 推定コスト \(text)", "estimated API cost \(text)", language: language))
         }
-        if showTokensInMenuBar {
+        if settings.showsTokens {
             let tokens = usage.tokens
             let count = menuBarTokenCount(tokens).formatted()
             let input = (includeCacheInMenuBarTokens ? tokens.input : tokens.uncachedInput).formatted()
@@ -279,18 +245,20 @@ final class UsageStore {
 
     private func limitHelp(for provider: Provider) -> String {
         let windows = menuBarWindows(for: provider)
-        guard !windows.isEmpty else {
+        guard windows.contains(where: { $0 != nil }) else {
             return language == .japanese ? "\(provider.name): 制限未取得" : "\(provider.name): limits unavailable"
         }
-        if showBothLimitWindowsInMenuBar {
-            return windows.map { window in
-                let title = localizedWindowTitle(window, language: language)
-                let value = menuPercentageText(for: provider, window: window)
-                let metric = percentageMetricName
-                return "\(provider.name): \(title) \(language == .japanese ? "枠の" : "")\(metric) \(value)"
-            }.joined(separator: "\n")
-        }
-        guard let window = windows.first else { return "" }
+        let kinds = settings(for: provider).limitWindows
+        return zip(kinds, windows).map { kind, window in
+            guard let window else {
+                let title = limitKindTitle(kind, language: language)
+                return language == .japanese ? "\(provider.name): \(title)枠は未取得" : "\(provider.name): \(title) unavailable"
+            }
+            return windowHelp(for: provider, window: window)
+        }.joined(separator: "\n")
+    }
+
+    private func windowHelp(for provider: Provider, window: LimitWindow) -> String {
         let title = localizedWindowTitle(window, language: language)
         let value = menuPercentageText(for: provider, window: window)
         if menuBarPercentageMode == .used {
@@ -310,11 +278,6 @@ final class UsageStore {
             return language == .japanese ? "\(provider.name): \(title)枠の再取得待ち" : "\(provider.name): \(title) waiting for refresh"
         }
         return language == .japanese ? "\(provider.name): \(title)枠の残量 \(value)" : "\(provider.name): \(title) remaining \(value)"
-    }
-
-    private var percentageMetricName: String {
-        if language == .japanese { return menuBarPercentageMode == .used ? "使用量" : "残量" }
-        return menuBarPercentageMode == .used ? "used" : "remaining"
     }
 
     init() {
