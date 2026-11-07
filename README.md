@@ -8,11 +8,11 @@ ChatGPT・Claude・OpenCode Goの使用状況をメニューバーから確認�
 
 ## 特長
 
-- メニューバーにChatGPT・Claude・OpenCode Goそれぞれのアイコンと残量を表示（5時間枠を優先、未提供なら週間枠）。クリックでスクロール不要の詳細を開く
-- プロバイダーごとに表示・非表示を切り替え。不要なプロバイダーをダッシュボードとメニューバーから隠せる
-- メニューバーのChatGPT・Claude・Goの名称もプロバイダーごとに表示・非表示を切り替えできる
+- メニューバーにChatGPT・Claude・OpenCode Goそれぞれのアイコンと残量を表示（既定は5時間枠。未提供なら週間枠）。クリックでスクロール不要の詳細を開く
+- 歯車メニューの「設定…」（⌘,）で設定ウインドウを開く。開いたまま複数の項目を変更でき、メニューバーの見た目をプレビューで確認できる
+- 設定はプロバイダーごとのタブに分かれる。表示・非表示、メニューバーの名称、メニューバーに出す制限枠（5時間・週間、OpenCode Goは月間も。複数選ぶと「5時間/月間」のように並べる）、推定コスト、トークン量をプロバイダーごとに選べる
 - OpenCode Goはトークン・コスト・モデル内訳と、5時間・週間・月間のアカウント全体の使用率を表示。Claude Code / Codex経由の利用も含む
-- 歯車メニューから、メニューバーに推定コストとトークン量（キャッシュを除く入力＋出力。オプションでキャッシュ込み）も表示可能。期間は今日／7日間／30日間／今月から選択
+- メニューバーの推定コストとトークン量はキャッシュを除く入力＋出力（オプションでキャッシュ込み）。期間は今日／7日間／30日間／今月から選択。残量／使用量の切り替えと合わせて「一般」タブで全プロバイダー共通に設定
 - 入力・出力トークン数、キャッシュ読込・書込を今日／7日間／30日間／今月で集計
 - トークンはエンドポイント単位（Anthropic API / OpenAI API / OpenCode Go）で集計。Claude CodeやCodex経由でも、実際にリクエストした先へ振り分け
 - モデル別・effort別・モデル×effort・ツール別・ツール×モデルのトークン内訳を切り替え。行にカーソルを合わせるとキャッシュの内訳も表示
@@ -44,13 +44,13 @@ rtk proxy open dist/Ratok.app
 
 接続時にユーザー設定の`statusLine.command`をラップし、元のコマンドに同じ標準入力を渡します。paddingなど既存の設定も保持します。設定を再読み込みしない既存セッションでは、Claude Codeを再起動してください。プロジェクト単位のstatus line設定がユーザー設定より優先される場合、その設定にも同様の連携が必要です。
 
-歯車メニューの「Claude連携を解除」で元のstatus line設定に戻ります。接続後にユーザーが別のコマンドへ変更した場合は、その変更を保持します。連携用実行ファイルと元のstatus lineのバックアップは`~/Library/Application Support/Ratok/`へ保存されます。旧版の連携と保存済みレート制限情報も引き続き読み込みます。連携で保存するのはレート制限情報のみです。
+設定ウインドウの「Claude」タブの「解除」で元のstatus line設定に戻ります。接続後にユーザーが別のコマンドへ変更した場合は、その変更を保持します。連携用実行ファイルと元のstatus lineのバックアップは`~/Library/Application Support/Ratok/`へ保存されます。旧版の連携と保存済みレート制限情報も引き続き読み込みます。連携で保存するのはレート制限情報のみです。
 
 公式仕様: [Claude Code status line](https://code.claude.com/docs/en/statusline)
 
 ## OpenCode Goの利用状況
 
-歯車メニューの「OpenCode Go APIキーを設定…」で、`claude-go` / `codex-go` などで使っている`oc_sk_…`キーを登録します。キーはKeychainに保存し、`https://opencode.ai/inference/go/v1/usage`への読み取りにのみ使用します。環境変数`OPENCODE_API_KEY`、`ANTHROPIC_BASE_URL`がOpenCode Goを指す場合の`ANTHROPIC_AUTH_TOKEN`、`~/.claude/settings.json`の`env`、`~/.local/share/opencode/auth.json`の`opencode-go`も自動検出します。シェルの起動ファイルは読みません。Finderから起動したRatokにはシェル関数内の環境変数が引き継がれないため、`claude-go` / `codex-go`のキーは初回にKeychainへ登録してください。
+設定ウインドウの「OpenCode Go」タブ、またはダッシュボードのOpenCode Goカードの「APIキーを設定…」で、`claude-go` / `codex-go` などで使っている`oc_sk_…`キーを登録します。キーはKeychainに保存し、`https://opencode.ai/inference/go/v1/usage`への読み取りにのみ使用します。環境変数`OPENCODE_API_KEY`、`ANTHROPIC_BASE_URL`がOpenCode Goを指す場合の`ANTHROPIC_AUTH_TOKEN`、`~/.claude/settings.json`の`env`、`~/.local/share/opencode/auth.json`の`opencode-go`も自動検出します。シェルの起動ファイルは読みません。Finderから起動したRatokにはシェル関数内の環境変数が引き継がれないため、`claude-go` / `codex-go`のキーは初回にKeychainへ登録してください。
 
 OpenCode GoのAPIは、5時間（`rolling`）・週間（`weekly`）・月間（`monthly`）の使用率とリセット時刻を返します。Claude CodeやCodex経由のリクエストも同じアカウントの利用として反映されます。ドキュメントに記載されていないAPIのため、将来変更される可能性があります。認証が拒否された場合は「APIキーが無効です」と表示し、通信に失敗した場合は直前の値を保持します。
 
@@ -121,7 +121,7 @@ UI確認用に`open -n dist/Ratok.app --args --preview`で同じ画面を通常�
 
 ## 自動更新
 
-歯車メニューの「アップデートを確認…」で手動確認できます。「アップデートを自動確認」は既定で有効、自動インストールは既定で無効です。自動インストールを有効にすると、Sparkleがバックグラウンドでダウンロードし、終了時にインストールします。設定は次回起動にも保存されます。更新の配布先が未設定のビルドとプレビューでは更新機能は無効です。
+歯車メニューの「アップデートを確認…」で手動確認できます。自動確認・自動インストールは設定ウインドウの「一般」タブで切り替えます。「アップデートを自動確認」は既定で有効、自動インストールは既定で無効です。自動インストールを有効にすると、Sparkleがバックグラウンドでダウンロードし、終了時にインストールします。設定は次回起動にも保存されます。更新の配布先が未設定のビルドとプレビューでは更新機能は無効です。
 
 ### GitHub Releasesと自動更新
 
