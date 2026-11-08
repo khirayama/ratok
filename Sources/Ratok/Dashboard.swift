@@ -5,6 +5,9 @@ import UsageCore
 struct Dashboard: View {
     @Bindable var store: UsageStore
     @ObservedObject var updates: AppUpdater
+    /// The menu bar popover closes once Settings opens; the preview window stays.
+    var dismissesOnSettings = true
+    @Environment(\.dismiss) private var dismiss
     @State private var editingOpenCodeGoKey = false
     private var dashboardWidth: CGFloat { store.visibleProviders.count >= 3 ? 990 : 660 }
     var body: some View {
@@ -89,6 +92,7 @@ struct Dashboard: View {
 
     private func openSettings() {
         SettingsWindowController.shared.show(store: store, updates: updates)
+        if dismissesOnSettings { dismiss() }
     }
 }
 

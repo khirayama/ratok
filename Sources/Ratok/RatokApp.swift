@@ -77,7 +77,7 @@ struct RatokPreviewApp: App {
     @State private var store = UsageStore()
     @StateObject private var updates = AppUpdater(enabled: false)
     var body: some Scene {
-        WindowGroup("Ratok Preview") { Dashboard(store: store, updates: updates) }
+        WindowGroup("Ratok Preview") { Dashboard(store: store, updates: updates, dismissesOnSettings: false) }
             .windowResizability(.contentSize)
     }
 }
