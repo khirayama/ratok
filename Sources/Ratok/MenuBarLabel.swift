@@ -44,21 +44,33 @@ struct MenuBarLabel: View {
             .help(help)
     }
 
+    private struct Entry: Identifiable {
+        let provider: Provider
+        let showsName: Bool
+        let values: [String]
+        var id: Provider { provider }
+    }
+
     var image: NSImage {
-        let content = HStack(spacing: 8) {
-            if providers.isEmpty {
+        // Read the store here, not inside the rendered view: ImageRenderer evaluates its content
+        // outside this body, so reads there are not observed and settings changes would be missed.
+        let entries = providers.map { provider in
+            Entry(provider: provider, showsName: store.showsMenuBarName(for: provider),
+                  values: store.menuBarValues(for: provider))
+        }
+        let content = HStack(spacing: 6) {
+            if entries.isEmpty {
                 Text("Ratok")
             } else {
-                ForEach(providers) { provider in
-                    HStack(spacing: 4) {
-                        Image(nsImage: provider.markImage).renderingMode(.template)
-                            .resizable().scaledToFit().frame(width: 16, height: 16)
-                        if store.showsMenuBarName(for: provider) {
-                            Text(provider.menuBarName)
+                ForEach(entries) { entry in
+                    HStack(spacing: 3) {
+                        Image(nsImage: entry.provider.markImage).renderingMode(.template)
+                            .resizable().scaledToFit().frame(width: 14, height: 14)
+                        if entry.showsName {
+                            Text(entry.provider.menuBarName)
                         }
-                        let values = store.menuBarValues(for: provider)
-                        if !values.isEmpty {
-                            Text(values.joined(separator: " ")).monospacedDigit()
+                        if !entry.values.isEmpty {
+                            Text(entry.values.joined(separator: " ")).monospacedDigit()
                         }
                     }
                 }

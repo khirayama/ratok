@@ -94,6 +94,8 @@ private struct GeneralSettings: View {
                     Text(localized("残量", "Remaining", language: language)).tag(MenuBarPercentageMode.remaining)
                     Text(localized("使用量", "Used", language: language)).tag(MenuBarPercentageMode.used)
                 }.pickerStyle(.segmented)
+                Toggle(localized("割合に%記号を付ける", "Show % sign", language: language),
+                       isOn: $store.showsMenuBarPercentSign)
                 Picker(localized("コスト・トークンの期間", "Cost and token period", language: language), selection: $store.menuBarPeriod) {
                     ForEach(UsagePeriod.allCases) { Text(periodTitle($0, language: language)).tag($0) }
                 }

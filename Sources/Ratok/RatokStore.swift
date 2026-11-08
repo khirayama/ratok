@@ -27,6 +27,9 @@ final class UsageStore {
     var menuBarPercentageMode = MenuBarPercentageMode(rawValue: UserDefaults.standard.string(forKey: "menuBarPercentageMode") ?? "remaining") ?? .remaining {
         didSet { UserDefaults.standard.set(menuBarPercentageMode.rawValue, forKey: "menuBarPercentageMode") }
     }
+    var showsMenuBarPercentSign = UserDefaults.standard.object(forKey: "showsMenuBarPercentSign") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showsMenuBarPercentSign, forKey: "showsMenuBarPercentSign") }
+    }
     var includeCacheInMenuBarTokens = UserDefaults.standard.bool(forKey: "includeCacheInMenuBarTokens") {
         didSet { UserDefaults.standard.set(includeCacheInMenuBarTokens, forKey: "includeCacheInMenuBarTokens") }
     }
@@ -140,16 +143,17 @@ final class UsageStore {
         snapshots[.openCodeGo] = go
     }
 
-    func menuPercentageText(for provider: Provider, window: LimitWindow?) -> String {
-        let percentage: Double?
+    private func menuPercentage(for provider: Provider, window: LimitWindow?) -> Double? {
         if menuBarPercentageMode == .used {
-            percentage = window?.usedPercent.isFinite == true ? window?.usedPercent : nil
-        } else {
-            percentage = provider == .claude
-                ? window?.lastKnownRemainingPercent
-                : window?.remainingPercent(at: Date())
+            return window?.usedPercent.isFinite == true ? window?.usedPercent : nil
         }
-        guard let percentage else { return "—" }
+        return provider == .claude
+            ? window?.lastKnownRemainingPercent
+            : window?.remainingPercent(at: Date())
+    }
+
+    func menuPercentageText(for provider: Provider, window: LimitWindow?) -> String {
+        guard let percentage = menuPercentage(for: provider, window: window) else { return "—" }
         return String(format: "%.0f%%", percentage.rounded())
     }
 
@@ -161,10 +165,11 @@ final class UsageStore {
 
     func menuBarValue(for provider: Provider) -> String {
         let windows = menuBarWindows(for: provider)
-        guard windows.contains(where: { $0 != nil }) else { return "—" }
-        return windows.map { window in
-            window.map { menuPercentageText(for: provider, window: $0) } ?? "—"
-        }.joined(separator: "/")
+        let percentages = windows.map { window in window.flatMap { menuPercentage(for: provider, window: $0) } }
+        guard percentages.contains(where: { $0 != nil }) else { return "—" }
+        // One trailing % covers every window: "42/80%" instead of "42%/80%".
+        return percentages.map { $0.map { String(format: "%.0f", $0.rounded()) } ?? "—" }
+            .joined(separator: "/") + (showsMenuBarPercentSign ? "%" : "")
     }
 
     var showsMenuBarUsage: Bool { showsMenuBarUsage(providerSettings) }
@@ -203,8 +208,8 @@ final class UsageStore {
 
     private func menuBarCostText(_ cost: CostEstimate) -> String {
         guard let amount = cost.amountUSD else { return "—" }
-        // Cents only add width once the amount reaches three digits.
-        guard amount >= 100 else { return cost.displayText }
+        // Cents only add width once the amount reaches two digits.
+        guard amount >= 10 else { return cost.displayText }
         let dollars = amount.formatted(.currency(code: "USD").precision(.fractionLength(0)).locale(Locale(identifier: "en_US")))
         return dollars + (cost.isPartial ? "*" : "")
     }
