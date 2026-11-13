@@ -54,18 +54,18 @@ rtk proxy open dist/Ratok.app
 
 OpenCode GoのAPIは、5時間（`rolling`）・週間（`weekly`）・月間（`monthly`）の使用率とリセット時刻を返します。Claude CodeやCodex経由のリクエストも同じアカウントの利用として反映されます。ドキュメントに記載されていないAPIのため、将来変更される可能性があります。認証が拒否された場合は「APIキーが無効です」と表示し、通信に失敗した場合は直前の値を保持します。
 
-使用率APIはトークン数を返さないため、OpenCode Goのトークン・コストはローカルログからエンドポイント別に集計します。Claude Codeは`message.id`が`msg_`で始まるものをAnthropic、現在の64桁hex IDをOpenCode Goとして判定します。Codexは`session_meta.payload.model_provider`が`opencode-go`かどうかで判定します。
+使用率APIはトークン数を返さないため、OpenCode Goのトークン・コストはローカルログからエンドポイント別に集計します。Claude Codeは`message.id`がAnthropic形式（`msg_`＋24桁の英数字）で、かつモデル名がClaudeのものをAnthropicと判定します。それ以外（OpenCode Goの`msg_`＋32桁hex IDやhex ID、Claude以外のモデル名）はOpenCode Goとして集計します。Codexは`session_meta.payload.model_provider`が`opencode-go`かどうかで判定します。
 
 ## データと集計
 
 | 対象 | データ元 | 集計方法 |
 | --- | --- | --- |
-| Claude（Anthropic API） | `~/.claude/projects/**/*.jsonl`（サブエージェントを含む） | assistantのusageをメッセージ・リクエストIDで重複排除。`msg_`で始まるメッセージIDのみをAnthropicとして集計 |
+| Claude（Anthropic API） | `~/.claude/projects/**/*.jsonl`（サブエージェントを含む） | assistantのusageをメッセージ・リクエストIDで重複排除。Anthropic形式のメッセージIDとClaudeモデルのみをAnthropicとして集計 |
 | ChatGPT（OpenAI API） | `~/.codex/sessions/**/*.jsonl` | token_countの累積値の差分を集計。`model_provider`がOpenCode Go以外の利用を集計 |
 | Claudeの制限 | status lineからの`rate_limits` | 接続以降に取得した5時間・週間・追加利用の枠 |
 | ChatGPTの制限（Codex CLI） | token_countの`rate_limits`／`additional_rate_limits`、`codex app-server`の`account/rateLimits/read` | Codex全体の枠と追加枠を個別表示。Luna Reserveなどの別枠は通常枠へ混ぜず、ログに記録がない間もapp serverから5分ごとに取得して常時表示 |
 | ChatGPTのリセット権（Codex CLI） | `codex app-server`の`account/rateLimits/read` | 未使用のリセット権の回数と期限。制限と同じ応答から5分ごと、および手動更新時に取得 |
-| OpenCode Goのトークン | 上記Claude Code / Codexのログ | `msg_`以外のClaude Codeメッセージと、`model_provider=opencode-go`のCodex利用を統合。ツール別・ツール×モデルで内訳を表示 |
+| OpenCode Goのトークン | 上記Claude Code / Codexのログ | Anthropic形式以外のClaude Codeメッセージと、`model_provider=opencode-go`のCodex利用を統合。ツール別・ツール×モデルで内訳を表示 |
 | OpenCode Goの制限 | `https://opencode.ai/inference/go/v1/usage` | 5時間・週間・月間の使用率とリセット時刻。APIキーはKeychainまたは環境・設定ファイルから取得 |
 
 Codexのデータ構造: [OpenAI Codex protocol](https://github.com/openai/codex/blob/main/codex-rs/protocol/src/protocol.rs)
@@ -76,15 +76,15 @@ Codexのリセット権と、利用中でない枠（Luna Reserveなど）の制
 
 推定コストは`（非キャッシュ入力×入力単価＋出力×出力単価＋キャッシュ読込×読込単価＋キャッシュ書込×書込単価）÷1,000,000`で計算します。キャッシュを通常入力と二重計上せず、Claudeの1時間書込は`usage.cache_creation.ephemeral_1h_input_tokens`で区別します。保持時間が未記録の書込は5分単価で換算します。effort別は各モデルで計算してから合算し、effortによる独自の倍率は掛けません。
 
-2026-11-04確認の[OpenAI API料金](https://developers.openai.com/api/docs/pricing)・[Claude API料金](https://platform.claude.com/docs/en/about-claude/pricing)と、2026-11-04確認のOpenCode Goモデル単価（`https://opencode.ai/inference/go/v1/models`）をアプリ内に保持し、アプリ更新時に更新します。対応モデルは以下の通りです。いずれも日時付きIDに対応します。
+2026-11-10確認の[OpenAI API料金](https://developers.openai.com/api/docs/pricing)・[Claude API料金](https://platform.claude.com/docs/en/about-claude/pricing)と、2026-11-10確認のOpenCode Goモデル単価（`https://opencode.ai/inference/go/v1/models`）をアプリ内に保持し、アプリ更新時に更新します。対応モデルは以下の通りです。いずれも日時付きIDに対応します。
 
-- GPT-6.1 Sol／Terra、GPT-6 Sol／Luna／Astra、GPT-5.6 Sol／Terra／Luna／Cyber。
+- GPT-6.1 Sol／Terra、GPT-6 Sol／Luna／Cyber／Astra／Astra for Law／Rosalind、GPT-5.6 Sol／Terra／Luna／Cyber、GPT-5.5 Cyber。
 - GPT-5.5、GPT-5.4、GPT-5.2、GPT-5.1、GPT-5と、公式単価のあるPro／mini／nano／Codex／chat-latest版。GPT-5.3はCodex／chat-latest版、GPT-5.1 Codexはmax／mini版も対応。
 - `codex-mini-latest`、`chat-latest`。
 - GPT-4.1／mini／nano、GPT-4o／mini、o1／Pro／mini／Preview、o3／Pro／mini、o4-mini。過去ログ用にGPT-4.5 Preview、GPT-4／Turbo／Turbo Preview、GPT-3.5 Turbo／instruct、ChatGPT-4o、davinci-002、babbage-002も対応。
-- o3／o4-mini Deep Research、computer-use-preview、GPT-4o／mini Search Preview、GPT-5 Search API、GPT-Rosalind Research。Rosalindは公開されたAPI標準単価で換算し、公式の課金開始日は2026-10-05です。
+- o3／o4-mini Deep Research、computer-use-preview、GPT-4o／mini Search Preview、GPT-5 Search API、GPT-Rosalind Research／Discovery。Rosalindは公開されたAPI標準単価で換算し、公式の課金開始日は2026-10-05です。
 - text-embedding-3-small／large、text-embedding-ada-002、omni-moderation-latest。公式に無料のモデルは$0.00と表示。
-- Claude Fable 5／5.1、Mythos 5／5.1／Preview、Opus 5.5／5／4.8／4.7／4.6／4.5／4.1／4、Sonnet 5.5／5／4.6／4.5／4、Haiku 5.5／4.5／3.5。
+- Claude Fable 5.2／5.1／5、Mythos 5.2／5.1／5／Preview、Opus 5.5／5／4.8／4.7／4.6／4.5／4.1／4、Sonnet 5.5／5／4.6／4.5／4、Haiku 5.5／4.5／3.5。
 
 `gpt-5.6`はSol、[Daybreak Blue](https://developers.openai.com/api/docs/models/gpt-daybreak-blue-latest)はGPT-5.6 Sol、[Daybreak Red](https://developers.openai.com/api/docs/models/gpt-daybreak-red-latest)はGPT-5.6 Cyberの公式別名として換算します。別名の対象も上記の確認日時点で固定しています。独立したキャッシュ単価がないモデルは通常入力単価で換算します。
 
