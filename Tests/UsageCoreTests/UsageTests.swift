@@ -195,11 +195,11 @@ private actor ProgressRecorder {
     let directory = try temporaryDirectory()
     defer { try? FileManager.default.removeItem(at: directory) }
     let entries = [
-        try claude("old", input: 9_000, at: "2026-10-01T03:00:00Z", model: "old", effort: "high"),
-        try claude("a", output: 5, model: "model-a", effort: "high"),
+        try claude("old", input: 9_000, at: "2026-10-01T03:00:00Z", model: "claude-old", effort: "high"),
+        try claude("a", output: 5, model: "claude-model-a", effort: "high"),
         try claude("a", output: 30),
-        try claude("b", input: 40, output: 10, model: "model-a", effort: "low"),
-        try claude("c", input: 100, model: "model-b", effort: "high"),
+        try claude("b", input: 40, output: 10, model: "claude-model-a", effort: "low"),
+        try claude("c", input: 100, model: "claude-model-b", effort: "high"),
         try claude("unknown")
     ]
     let data = entries.reduce(into: Data()) { $0.append($1); $0.append(10) }
@@ -210,9 +210,9 @@ private actor ProgressRecorder {
         start: try #require(ParsedLog.date("2026-10-02T00:00:00Z")),
         now: try #require(ParsedLog.date("2026-10-03T00:00:00Z")))
     #expect(snapshot.usageByGroup.count == 4)
-    #expect(snapshot.usageByGroup[UsageGroup(model: "model-a", effort: "high", tool: .claudeCode)]?.output == 30)
+    #expect(snapshot.usageByGroup[UsageGroup(model: "claude-model-a", effort: "high", tool: .claudeCode)]?.output == 30)
     #expect(snapshot.usageByGroup[UsageGroup(tool: .claudeCode)] == TokenUsage(input: 160, output: 20, cacheRead: 100, cacheWrite: 50))
-    #expect(snapshot.breakdown(by: .model).map(\.id) == [UsageGroup(model: "model-a"), UsageGroup(model: "model-b"), UsageGroup()])
+    #expect(snapshot.breakdown(by: .model).map(\.id) == [UsageGroup(model: "claude-model-a"), UsageGroup(model: "claude-model-b"), UsageGroup()])
     #expect(snapshot.breakdown(by: .effort).first?.id == UsageGroup(effort: "high"))
     for grouping in UsageGrouping.allCases {
         #expect(snapshot.breakdown(by: grouping).reduce(TokenUsage()) { $0 + $1.tokens } == snapshot.tokens)
@@ -359,6 +359,26 @@ private actor ProgressRecorder {
     let events = parsed.events.values
     #expect(Set(events.map(\.endpoint)) == [.claude, .openCodeGo])
     #expect(events.allSatisfy { $0.group.tool == .claudeCode })
+}
+
+@Test func openCodeGoMessagePrefixIDsAndNonClaudeModelsStayWithOpenCodeGo() throws {
+    var parsed = ParsedLog(sessionID: "session")
+    // OpenCode Go's newer Anthropic-compatible IDs: msg_ plus 32 lowercase hex characters.
+    parsed.consume(try claude("msg_980fb38c70ba473390ccfa9a032b09a6", model: "deepseek-v4.1-flash"), provider: .claude)
+    // Anthropic-shaped IDs still belong to OpenCode Go when the model is not a Claude model.
+    parsed.consume(try claude("msg_011Cg4js8MQnDKjXKXjs6pkP", model: "deepseek-v4.1-flash"), provider: .claude)
+    // Anthropic's own IDs keep the Claude endpoint.
+    parsed.consume(try claude("msg_011Cgr6zeTwxinp3WgogGMq6", model: "claude-sonnet-5-5"), provider: .claude)
+    let events = parsed.events.values
+    #expect(events.filter { $0.endpoint == .openCodeGo }.count == 2)
+    #expect(events.filter { $0.endpoint == .claude }.count == 1)
+    #expect(events.first { $0.endpoint == .claude }?.group.model == "claude-sonnet-5-5")
+}
+
+@Test func syntheticRecordsWithoutModelStayWithClaude() throws {
+    var parsed = ParsedLog(sessionID: "session")
+    parsed.consume(try claude("msg_synthetic", model: "<synthetic>"), provider: .claude)
+    #expect(parsed.events.values.map(\.endpoint) == [.claude])
 }
 
 @Test func codexModelProviderSplitsOpenCodeGoFromOpenAI() throws {

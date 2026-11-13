@@ -93,12 +93,14 @@ struct ParsedLog: Sendable {
             let tokens = TokenUsage(input: TokenUsage.sum(TokenUsage.sum(Self.integer(usage, "input_tokens"), read), write),
                                     output: Self.integer(usage, "output_tokens"), cacheRead: read, cacheWrite: write,
                                     cacheWrite1h: min(write, Self.integer(creation, "ephemeral_1h_input_tokens")))
-            guard let id = message["id"] as? String ?? object["uuid"] as? String else { return }
+            let messageID = message["id"] as? String
+            guard let id = messageID ?? object["uuid"] as? String else { return }
             // Streaming records repeat a message ID; retain the latest usage, don't add it twice.
             let key = "\(id):\(object["requestId"] as? String ?? "")"
-            let endpoint: Provider = (message["id"] as? String).map(Self.isOpenCodeGoMessage) == true
+            let model = Self.metadata(message, "model")
+            let endpoint: Provider = messageID.map { Self.isOpenCodeGoMessage($0, model: model) } == true
                 ? .openCodeGo : .claude
-            let group = UsageGroup(model: Self.metadata(message, "model"),
+            let group = UsageGroup(model: model,
                                    effort: Self.metadata(object, "perTurnEffort") ?? Self.metadata(object, "effort"),
                                    tool: .claudeCode)
             if let old = events[key] {
@@ -143,12 +145,18 @@ struct ParsedLog: Sendable {
                    cacheRead: integer(value, "cached_input_tokens"), cacheWrite: integer(value, "cache_write_input_tokens"))
     }
 
-    /// Anthropic returns message IDs such as `msg_...`. OpenCode Go's
-    /// Anthropic-compatible endpoint currently returns a 64-character hex ID.
-    /// Keep ordinary/unknown IDs with the Claude endpoint so existing logs
-    /// and synthetic records are not misclassified.
-    static func isOpenCodeGoMessage(_ id: String) -> Bool {
-        !id.hasPrefix("msg_") && id.count >= 48 && id.allSatisfy(\.isHexDigit)
+    /// Anthropic returns message IDs such as `msg_01XFDUDYJgAACzvnptvVoYEL`: `msg_` followed by
+    /// 24 base62 characters. OpenCode Go's Anthropic-compatible endpoint has returned bare hex
+    /// IDs and, since November 2026, `msg_` followed by 32 lowercase hex characters. The model
+    /// is the second signal: the Anthropic API only serves Claude models, so a record naming any
+    /// other model came from another endpoint even if OpenCode Go changes its ID format again.
+    /// Unknown IDs and synthetic records without a model stay with the Claude endpoint so they
+    /// are not misclassified.
+    static func isOpenCodeGoMessage(_ id: String, model: String?) -> Bool {
+        if let model, model != "<synthetic>", !model.lowercased().contains("claude") { return true }
+        if !id.hasPrefix("msg_") { return id.count >= 48 && id.allSatisfy(\.isHexDigit) }
+        let body = id.dropFirst(4)
+        return body.count == 32 && body.allSatisfy { $0.isHexDigit && !$0.isUppercase }
     }
 
     /// Codex rollouts traditionally contain one `rate_limits` bucket. Newer
