@@ -22,10 +22,11 @@ extension Provider {
         image.isTemplate = true
         return image
     }
+    /// Kept short: the menu bar has little room on Macs with a notch.
     var menuBarName: String {
         switch self {
-        case .claude: "Claude"
-        case .codex: "ChatGPT"
+        case .claude: "CC"
+        case .codex: "GPT"
         case .openCodeGo: "Go"
         }
     }
@@ -58,14 +59,14 @@ struct MenuBarLabel: View {
             Entry(provider: provider, showsName: store.showsMenuBarName(for: provider),
                   values: store.menuBarValues(for: provider))
         }
-        let content = HStack(spacing: 6) {
+        let content = HStack(spacing: 4) {
             if entries.isEmpty {
                 Text("Ratok")
             } else {
                 ForEach(entries) { entry in
-                    HStack(spacing: 3) {
+                    HStack(spacing: 2) {
                         Image(nsImage: entry.provider.markImage).renderingMode(.template)
-                            .resizable().scaledToFit().frame(width: 14, height: 14)
+                            .resizable().scaledToFit().frame(width: 12, height: 12)
                         if entry.showsName {
                             Text(entry.provider.menuBarName)
                         }
@@ -76,7 +77,7 @@ struct MenuBarLabel: View {
                 }
             }
         }
-        .font(.system(size: 13, weight: .medium))
+        .font(.system(size: 12, weight: .medium))
         .foregroundStyle(.black)
         .fixedSize()
         .frame(height: 18)
