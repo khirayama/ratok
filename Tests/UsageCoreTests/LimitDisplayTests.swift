@@ -174,6 +174,17 @@ func codexResetCreditsClassifyOtherMessages(_ line: String, _ expected: ResetCre
     #expect(ClaudeAccount.limits(fromResponse: Data("not json".utf8), now: now) == nil)
 }
 
+@Test func resetTimesAreDisplayedToTheNearestMinute() throws {
+    // Claude reports the instant just before the minute; its dashboard shows the whole minute.
+    let fiveHour = try #require(ParsedLog.date("2026-11-09T01:09:59.571855+00:00"))
+    let weekly = try #require(ParsedLog.date("2026-11-10T03:59:59.571876+00:00"))
+    #expect(fiveHour.roundedToNearestMinute == ParsedLog.date("2026-11-09T01:10:00Z"))
+    #expect(weekly.roundedToNearestMinute == ParsedLog.date("2026-11-10T04:00:00Z"))
+    // OpenCode reports plain seconds; 21 seconds past keeps the same minute.
+    let rolling = try #require(ParsedLog.date("2026-11-09T01:38:21Z"))
+    #expect(rolling.roundedToNearestMinute == ParsedLog.date("2026-11-09T01:38:00Z"))
+}
+
 @Test func claudeAccessTokenIsUsedOnlyUntilItExpires() {
     let now = Date(timeIntervalSince1970: 1_000)
     func token(_ json: String) -> String? { ClaudeAccount.accessToken(fromCredentials: Data(json.utf8), now: now) }

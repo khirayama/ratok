@@ -92,6 +92,15 @@ public struct TokenUsage: Codable, Sendable, Equatable {
     }
 }
 
+public extension Date {
+    /// A limit endpoint reports its reset a fraction of a second before the minute
+    /// (for example 10:09:59.57). The provider's own dashboard shows the nearest minute,
+    /// so absolute reset times are rounded the same way before being displayed.
+    var roundedToNearestMinute: Date {
+        Date(timeIntervalSinceReferenceDate: (timeIntervalSinceReferenceDate / 60).rounded() * 60)
+    }
+}
+
 public struct LimitWindow: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var title: String

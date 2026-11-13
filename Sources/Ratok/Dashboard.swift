@@ -511,10 +511,12 @@ private struct LimitRow: View {
                 .accessibilityLabel(localized("\(window.title)の使用率", "\(localizedWindowTitle(window, language: language)) usage", language: language))
                 .accessibilityValue(expired ? localized("再取得待ち", "Waiting for refresh", language: language) : "\(used)%")
                 if let reset = window.resetsAt {
+                    let resetText = reset.roundedToNearestMinute
+                        .formatted(.dateTime.month().day().hour().minute().locale(language.locale))
                     HStack {
                         Text(expired
                              ? localized("リセット時刻を過ぎています", "Reset time has passed", language: language)
-                             : localized("リセット \(reset.formatted(.dateTime.month().day().hour().minute().locale(language.locale)))", "Resets \(reset.formatted(.dateTime.month().day().hour().minute().locale(language.locale)))", language: language))
+                             : localized("リセット \(resetText)", "Resets \(resetText)", language: language))
                         Spacer()
                         if !expired { Text(reset, style: .relative) }
                     }.font(.system(size: 9)).foregroundStyle(.secondary)
