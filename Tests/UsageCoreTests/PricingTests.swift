@@ -1,11 +1,13 @@
 import Foundation
 import Testing
 
-// Official current text-model inventories, checked on 2026-11-10.
+// Official current text-model inventories, checked on 2026-11-21.
 @Test(arguments: [
+    "gpt-6.2-astra", "gpt-6.2-sol", "gpt-6.2-astra-law",
     "gpt-6-astra", "gpt-6.1-sol", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna",
     "gpt-6-cyber", "gpt-6-astra-law", "gpt-6-rosalind",
-    "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-cyber", "gpt-5.5-cyber",
+    "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.6-cyber",
+    "gpt-5.5-cyber", "gpt-5.5-cyber-preview",
     "gpt-5.5", "gpt-5.5-pro", "gpt-5.4", "gpt-5.4-pro", "gpt-5.4-mini",
     "gpt-5.2", "gpt-5.2-pro", "gpt-5", "gpt-5-pro", "gpt-5-mini", "gpt-5-nano",
     "gpt-4.1", "gpt-4.1-mini", "gpt-4o", "gpt-4o-mini", "o3", "o3-pro",
@@ -39,6 +41,7 @@ func additionalClaudeModelsPriceBothCacheDurations(model: String, expectedUSD: D
 }
 
 @Test(arguments: [("gpt-6-cyber", 133.50), ("gpt-5.5-cyber", 94.375),
+                  ("gpt-5.5-cyber-preview", 94.375),
                   ("gpt-6-rosalind", 100.125), ("gpt-6-astra-law", 65.50),
                   ("gpt-rosalind-discovery", 32.75)])
 func newestCodexAndResearchModelsUseTheirPublishedRates(model: String, expectedUSD: Double) throws {
@@ -91,6 +94,15 @@ func officialClaudeCloudIDsUseTheSameAPIEquivalent(model: String, canonical: Str
     let tokens = TokenUsage(input: 2_000_000, output: 1_000_000, cacheRead: 500_000, cacheWrite: 500_000)
     let estimate = APIPricing.estimate(model: "gpt-6.1-sol", tokens: tokens)
     #expect(abs(estimate.subtotalUSD - 13.30) < 0.000001)
+}
+
+@Test(arguments: [("gpt-6.2-astra", 58.40), ("gpt-6.2-sol", 14.60),
+                  ("gpt-6.2-astra-law", 58.40)])
+func gpt62ModelsUseTheirPublishedRatesIncludingCaches(model: String, expectedUSD: Double) throws {
+    let tokens = TokenUsage(input: 3_000_000, output: 1_000_000, cacheRead: 1_000_000, cacheWrite: 1_000_000)
+    let estimate = APIPricing.estimate(model: model, tokens: tokens)
+    #expect(abs(try #require(estimate.amountUSD) - expectedUSD) < 0.000001)
+    #expect(!estimate.isPartial)
 }
 
 @Test(arguments: [("gpt-6-astra", 73.50), ("gpt-6-sol", 14.70),
@@ -253,10 +265,21 @@ func datedModelIDsUseTheirModelRate(model: String, expected: Double) {
     #expect(APIPricing.estimate(model: "deepseek-v4.1-flash", tokens: tokens, endpoint: .claude).amountUSD == nil)
 }
 
-@Test(arguments: [("hy4", 0.834), ("longcat-2.5-free", 0)])
+@Test(arguments: [("hy4", 0.834), ("hy4-flash-free", 0), ("qwen4-max", 1.50),
+                  ("longcat-2.5-free", 0)])
 func openCodeGoCatalogIncludesLatestModels(model: String, expectedUSD: Double) {
     let estimate = APIPricing.estimate(model: model, tokens: TokenUsage(input: 1_000_000), endpoint: .openCodeGo)
     #expect(estimate.amountUSD == expectedUSD)
+    #expect(!estimate.isPartial)
+}
+
+@Test func openCodeGoQwen4MaxPricesCacheWritesByDuration() throws {
+    let tokens = TokenUsage(input: 4_000_000, output: 1_000_000, cacheRead: 1_000_000,
+                            cacheWrite: 2_000_000, cacheWrite1h: 1_000_000)
+    let estimate = APIPricing.estimate(model: "qwen4-max", tokens: tokens, endpoint: .openCodeGo)
+    // $1.50 input + $4.50 output + $0.075 read + $1.875 five-minute write + $3 one-hour write.
+    #expect(abs(try #require(estimate.amountUSD) - 10.95) < 0.000001)
+    #expect(estimate.pricedTokens == 5_000_000)
     #expect(!estimate.isPartial)
 }
 

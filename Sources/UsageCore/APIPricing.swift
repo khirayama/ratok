@@ -26,8 +26,8 @@ public struct CostEstimate: Sendable, Equatable {
 }
 
 public enum APIPricing {
-    public static let verifiedOn = "2026-11-10"
-    public static let goVerifiedOn = "2026-11-10"
+    public static let verifiedOn = "2026-11-21"
+    public static let goVerifiedOn = "2026-11-21"
     public static let assumptions = "USD・API標準単価での換算額です。サブスクの請求額ではありません。短いコンテキストの通常料金を使用し、Fast/長文/地域指定の割増、Batch割引、ツール料金、税は含みません。クラウド経由のClaudeもAnthropic標準単価で換算します。Claudeのキャッシュ書込は1時間分をログから区別し、保持時間が未記録の分は5分単価で計算します。OpenCode Goは基本単価を使用し、時間帯による倍率と長文時の上書き単価は含みません。画像生成・音声など専用の利用内訳が必要なモデルは対象外です。単価は各エンドポイントの確認日時点で、アプリ更新時に更新します。"
     public static func verifiedOn(for provider: Provider) -> String {
         provider == .openCodeGo ? goVerifiedOn : verifiedOn
@@ -70,6 +70,9 @@ public enum APIPricing {
     // USD per million tokens, verified against the linked official rate cards.
     // Do not infer prices for unknown models or unlisted variants.
     private static let catalog: [String: Rates] = [
+        "gpt-6.2-astra": Rates(input: 8, output: 40, read: 0.40, write: 10),
+        "gpt-6.2-sol": Rates(input: 2, output: 10, read: 0.10, write: 2.50),
+        "gpt-6.2-astra-law": Rates(input: 8, output: 40, read: 0.40, write: 10),
         "gpt-6.1-sol": Rates(input: 2, output: 10, read: 0.10, write: 2.50),
         "gpt-6.1-terra": Rates(input: 1, output: 5, read: 0.05, write: 1.25),
         // Reserve-pool usage draws from the included plan, so count it at $0.
@@ -85,6 +88,7 @@ public enum APIPricing {
         "gpt-5.6-luna": Rates(input: 0.20, output: 1.20, read: 0.02, write: 0.25),
         "gpt-5.6-cyber": Rates(input: 12.50, output: 75, read: 1.25, write: 15.625),
         "gpt-5.5-cyber": Rates(input: 12.50, output: 75, read: 1.25),
+        "gpt-5.5-cyber-preview": Rates(input: 12.50, output: 75, read: 1.25),
         "gpt-5.5": Rates(input: 5, output: 30, read: 0.50),
         "gpt-5.5-pro": Rates(input: 30, output: 180),
         "gpt-5.4": Rates(input: 2.50, output: 15, read: 0.25, write: 2.50),
@@ -194,6 +198,7 @@ public enum APIPricing {
         "hy3": Rates(input: 0.14, output: 0.58, read: 0.035),
         "hy4-preview": Rates(input: 0.834, output: 2.501, read: 0.042),
         "hy4": Rates(input: 0.834, output: 2.501, read: 0.042),
+        "hy4-flash-free": Rates(input: 0, output: 0, read: 0),
         "kimi-k2.7-code": Rates(input: 0.95, output: 4, read: 0.19),
         "kimi-k3": Rates(input: 3, output: 15, read: 0.30, write: 3),
         "kimi-k3.1-pro": Rates(input: 2, output: 10, read: 0.20, write: 2),
@@ -206,6 +211,7 @@ public enum APIPricing {
         "step-5-preview": Rates(input: 1, output: 2.70, read: 0.10),
         "beam-free": Rates(input: 0, output: 0, read: 0),
         "iceman-contributor-free": Rates(input: 0, output: 0, read: 0),
+        "qwen4-max": Rates(input: 1.50, output: 4.50, read: 0.075, write: 1.875, write1h: 3),
         "qwen3.8-max": Rates(input: 2, output: 6, read: 0.25, write: 2.50),
         "qwen3.8-flash": Rates(input: 0.15, output: 0.47, read: 0.016, write: 0.20),
         "qwen3.7-plus": Rates(input: 0.40, output: 1.60, read: 0.04, write: 0.50),
