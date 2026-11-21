@@ -76,9 +76,9 @@ Codexのリセット権と、利用中でない枠（Luna Reserveなど）の制
 
 推定コストは`（非キャッシュ入力×入力単価＋出力×出力単価＋キャッシュ読込×読込単価＋キャッシュ書込×書込単価）÷1,000,000`で計算します。キャッシュを通常入力と二重計上せず、Claudeの1時間書込は`usage.cache_creation.ephemeral_1h_input_tokens`で区別します。保持時間が未記録の書込は5分単価で換算します。effort別は各モデルで計算してから合算し、effortによる独自の倍率は掛けません。
 
-2026-11-10確認の[OpenAI API料金](https://developers.openai.com/api/docs/pricing)・[Claude API料金](https://platform.claude.com/docs/en/about-claude/pricing)と、2026-11-10確認のOpenCode Goモデル単価（`https://opencode.ai/inference/go/v1/models`）をアプリ内に保持し、アプリ更新時に更新します。対応モデルは以下の通りです。いずれも日時付きIDに対応します。
+2026-11-21確認の[OpenAI API料金](https://developers.openai.com/api/docs/pricing)・[Claude API料金](https://platform.claude.com/docs/en/about-claude/pricing)と、2026-11-21確認のOpenCode Goモデル単価（`https://opencode.ai/inference/go/v1/models`）をアプリ内に保持し、アプリ更新時に更新します。対応モデルは以下の通りです。いずれも日時付きIDに対応します。
 
-- GPT-6.1 Sol／Terra、GPT-6 Sol／Luna／Cyber／Astra／Astra for Law／Rosalind、GPT-5.6 Sol／Terra／Luna／Cyber、GPT-5.5 Cyber。
+- GPT-6.2 Astra／Sol／Astra for Law、GPT-6.1 Sol／Terra、GPT-6 Sol／Luna／Cyber／Astra／Astra for Law／Rosalind、GPT-5.6 Sol／Terra／Luna／Cyber、GPT-5.5 Cyber／Cyber Preview。
 - GPT-5.5、GPT-5.4、GPT-5.2、GPT-5.1、GPT-5と、公式単価のあるPro／mini／nano／Codex／chat-latest版。GPT-5.3はCodex／chat-latest版、GPT-5.1 Codexはmax／mini版も対応。
 - `codex-mini-latest`、`chat-latest`。
 - GPT-4.1／mini／nano、GPT-4o／mini、o1／Pro／mini／Preview、o3／Pro／mini、o4-mini。過去ログ用にGPT-4.5 Preview、GPT-4／Turbo／Turbo Preview、GPT-3.5 Turbo／instruct、ChatGPT-4o、davinci-002、babbage-002も対応。
